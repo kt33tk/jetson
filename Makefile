@@ -1,25 +1,26 @@
 CC = gcc
-CFLAGS = -Iinclude -Wall -Wextra
+# -Iinclude 告诉编译器去 include 文件夹下找 .h 头文件
+CFLAGS = -Wall -Iinclude
 
-# 默认目标
-all: build/can_monitor
+# 声明公共的协议与校验源文件（带上 src/ 路径）
+COMMON_SRC = src/can_protocol.c src/crc8.c
+COMMON_OBJ = $(COMMON_SRC:.c=.o)
 
-# 编译所有 .c 文件到 build 目录下的 .o 文件
-build/%.o: src/%.c
+# 默认目标：一次编译同时生成两个可执行程序
+all: can_monitor can_send_cmd
+
+# 链接生成监听工具 can_monitor
+can_monitor: src/can_monitor.o $(COMMON_OBJ)
+	$(CC) -o $@ $^
+
+# 链接生成指令发送工具 can_send_cmd
+can_send_cmd: src/can_send_cmd.o $(COMMON_OBJ)
+	$(CC) -o $@ $^
+
+# 将 src/ 下的 .c 编译为对应的 .o
+src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# 链接所有 .o 文件生成最终可执行文件
-build/can_monitor: build/main.o build/can_protocol.o build/crc8.o
-	$(CC) $^ -o $@
-
-# 清理构建残留
+# 清理编译产物
 clean:
-	rm -f build/*.o build/can_monitor
-
-# 编译并运行
-run: all
-	./build/can_monitor
-
-# 测试目标
-test: all
-	@echo "Test suite placeholder..."
+	rm -f src/*.o can_monitor can_send_cmd
