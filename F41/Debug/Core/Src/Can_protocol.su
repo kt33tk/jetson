@@ -1,0 +1,7 @@
+../Core/Src/Can_protocol.c:17:6:Pack_Msg_0x180	24	static
+../Core/Src/Can_protocol.c:38:6:Unpack_Msg_0x180	16	static
+../Core/Src/Can_protocol.c:55:6:Pack_Msg_0x200	24	static
+../Core/Src/Can_protocol.c:75:6:Unpack_Msg_0x200	16	static
+../Core/Src/Can_protocol.c:82:20:Filter_And_Decode_0x200	24	static
+../Core/Src/Can_protocol.c:119:6:Unpack_Msg_0x181	16	static
+../Core/Src/Can_protocol.c:125:6:Unpack_Msg_0x280	16	static

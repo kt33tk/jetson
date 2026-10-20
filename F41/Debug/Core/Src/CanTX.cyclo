@@ -1,0 +1,5 @@
+../Core/Src/CanTX.c:14:6:Trigger_Send_0x280_ACK	3
+../Core/Src/CanTX.c:48:6:CanTX_Task	6
+../Core/Src/CanTX.c:122:6:HAL_CAN_TxMailbox0CompleteCallback	2
+../Core/Src/CanTX.c:130:6:HAL_CAN_TxMailbox1CompleteCallback	2
+../Core/Src/CanTX.c:138:6:HAL_CAN_TxMailbox2CompleteCallback	2
