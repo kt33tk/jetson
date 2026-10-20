@@ -69,7 +69,6 @@ QueueHandle_t Queue_Sensor_TX_t;      //传感器数据->CAN总线
 QueueHandle_t Queue_Sensor_CAN_t;	  //CAN总线处理后的传感器数据
 QueueHandle_t Queue_Sensor_Control_t; //传感器数据->控制器
 QueueHandle_t Queue_Control_TX_t;     //控制器->CAN总线
-QueueHandle_t Queue_UART_cmd_t;       //串口接收数据
 QueueHandle_t Queue_CAN_RX_t;       // CAN中断 → CanRX任务
 QueueHandle_t Queue_Control_Cmd_t;  // UART/CAN → Control任务
 
@@ -173,12 +172,11 @@ int main(void)
   Queue_Sensor_Control_t = xQueueCreate(1, sizeof(Sensor_Sample_t));
   Queue_Sensor_CAN_t = xQueueCreate(1, sizeof(Can_Frame_t));
   Queue_Control_TX_t = xQueueCreate(1, sizeof(ControlContext_t));
-  Queue_UART_cmd_t = xQueueCreate(1, sizeof(ControlCommand_t));
   Queue_CAN_RX_t = xQueueCreate(16, sizeof(Can_Frame_t));
   Queue_Control_Cmd_t = xQueueCreate(4, sizeof(ControlCommand_t));
 
   if (Queue_Sensor_TX_t == NULL || Queue_Sensor_Control_t == NULL ||
-        Queue_Sensor_CAN_t == NULL || Queue_Control_TX_t == NULL || Queue_UART_cmd_t == NULL)
+        Queue_Sensor_CAN_t == NULL || Queue_Control_TX_t == NULL || Queue_Control_Cmd_t || Queue_CAN_RX_t == NULL)
   {
       printf("[FATAL] Queue create failed!\r\n");
       HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET); // 强制关断
@@ -419,9 +417,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, VALUE_Pin|MODE2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : LED_Control_Pin */
   GPIO_InitStruct.Pin = LED_Control_Pin;
@@ -429,6 +431,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_Control_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : VALUE_Pin MODE2_Pin */
+  GPIO_InitStruct.Pin = VALUE_Pin|MODE2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 

@@ -2,7 +2,7 @@
 
 extern QueueHandle_t Queue_Sensor_Control_t;
 extern QueueHandle_t Queue_Control_TX_t;
-extern QueueHandle_t Queue_UART_cmd_t;
+extern QueueHandle_t Queue_Control_Cmd_t;
 
 extern TaskHandle_t WatchdogTaskHandle;
 
@@ -25,9 +25,22 @@ void Control_Task(void *pvParameters)
 			Control_Receive.valid_flag = 0;
 		}
 
-		if(xQueueReceive(Queue_UART_cmd_t, &cmd, 0) == pdTRUE)
+		if(xQueueReceive(Queue_Control_Cmd_t, &cmd, 0) == pdTRUE)
 		{
+			if(cmd.has_new_cmd == 1)
+			{
+				if(cmd.target_mode == 2)
+				{
+					HAL_GPIO_WritePin(MODE2_GPIO_Port, MODE2_Pin, GPIO_PIN_SET);
+				}
 
+				if(cmd.manual_request == 1)
+				{
+					HAL_GPIO_WritePin(VALUE_GPIO_Port, VALUE_Pin, GPIO_PIN_SET);
+				}
+			}
+
+			cmd.has_new_cmd = 0;
 		}
 		else
 		{

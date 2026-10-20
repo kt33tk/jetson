@@ -1,6 +1,6 @@
 #include "UART_cmd.h"
 
-extern QueueHandle_t Queue_UART_cmd_t;
+extern QueueHandle_t Queue_Control_Cmd_t;
 
 uint8_t data_receive[6];
 uint8_t receive_index = 0;
@@ -53,7 +53,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 					new_cmd.manual_request = data_receive[3];
 					new_cmd.has_new_cmd = 1;
 
-					xQueueSendFromISR(Queue_UART_cmd_t, &new_cmd, &xHigherPriorityTaskWoken);
+					xQueueSendFromISR(Queue_Control_Cmd_t, &new_cmd, &xHigherPriorityTaskWoken);
 				}
 			}
 		}
