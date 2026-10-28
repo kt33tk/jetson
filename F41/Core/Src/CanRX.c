@@ -10,27 +10,47 @@ extern volatile uint32_t can_tx_fail_cnt;
 void CanRX_Task(void *pvParameters)
 {
     Can_Frame_t raw_rx_msg;
-    ControlCmd_t valid_cmd;
+    ControlCommand_t valid_cmd = {0};
 
     for(;;) {
         if (xQueueReceive(Queue_CAN_RX_t, &raw_rx_msg, portMAX_DELAY) == pdTRUE) {
 
             if (raw_rx_msg.id == 0x200) {
+            	memset(&valid_cmd, 0, sizeof(valid_cmd));
                 // 将原始报文扔进漏斗过滤
                 Rx_Filter_Status_t status = Filter_And_Decode_0x200(&raw_rx_msg, &valid_cmd);
 
                 if (status == RX_VALID_NEW) {
-                    // 全新指令：推送到业务控制队列，触发实际动作[cite: 16]
-                    xQueueSend(Queue_Control_Cmd_t, &valid_cmd, 0);
+                	valid_cmd.timestamp = xTaskGetTickCount();
+                	valid_cmd.valid = 1;
 
-                    // 正常回复 0x280 应答帧
-                    Trigger_Send_0x280_ACK(valid_cmd.rx_counter);
+                    // 全新指令：推送到业务控制队列，触发实际动作[cite: 16]
+                	if (xQueueSend(Queue_Control_Cmd_t, &valid_cmd, 0) == pdPASS)
+                	{
+                		Commit_0x200_Counter(valid_cmd.rx_counter);
+                	    Trigger_Send_0x280_ACK(valid_cmd.rx_counter, ACK_SUCCESS);
+                	}
+                	else
+                	{
+                	    printf("[WARNING] Control Cmd Queue is FULL!\r\n");
+                	}
                 }
                 else if (status == RX_DUPLICATE) {
                     // 重复指令：不执行实际动作（不进控制队列），但必须触发发送 0x280[cite: 16]
-                    Trigger_Send_0x280_ACK(raw_rx_msg.data[6] & 0x0F);
+                    Trigger_Send_0x280_ACK(raw_rx_msg.data[6] & 0x0F, ACK_ERR_DUP);
                 }
                 // 如果是 RX_ERR_CRC 或 RX_ERR_DLC，直接无视并丢弃，什么都不做
+                else if (status == RX_ERR_CRC) {
+                    // CRC 错误：拦截不执行，返回 CRC 失败状态码
+                    Trigger_Send_0x280_ACK(raw_rx_msg.data[6] & 0x0F, ACK_ERR_CRC);
+                }
+                else if (status == RX_ERR_PARAM)
+                {
+                    Trigger_Send_0x280_ACK(
+                        raw_rx_msg.data[6] & 0x0FU,
+                        ACK_ERR_PARAM
+                    );
+                }
             }
         }
     }
@@ -55,7 +75,10 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
         }
 
         // 2. 使用专用的 FromISR 函数将数据压入接收队列
-        xQueueSendFromISR(Queue_CAN_RX_t, &raw_msg, &xHigherPriorityTaskWoken);
+        if (xQueueSendFromISR(Queue_CAN_RX_t, &raw_msg, &xHigherPriorityTaskWoken) != pdPASS)
+        {
+            can_rx_queue_full_cnt++;
+        }
 
         // 3. 立即触发 FreeRTOS 的上下文切换（如果 CanRX_Task 优先级更高，会瞬间跳过去执行）
         portYIELD_FROM_ISR(xHigherPriorityTaskWoken);

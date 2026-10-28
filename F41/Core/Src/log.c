@@ -8,6 +8,8 @@ extern TaskHandle_t LogTaskHandle;
 extern TaskHandle_t CanTXTaskHandle;
 extern TaskHandle_t WatchdogTaskHandle;
 
+extern volatile uint32_t can_tx_success_cnt;
+
 void Log_Task(void *pvParameters)
 {
 	Can_Frame_t CAN_Receive = {0};
@@ -66,14 +68,29 @@ void Log_Task(void *pvParameters)
 		        /* 使用协议模块统一解包 */
 		        Unpack_Msg_0x180(CAN_Receive.data, &decoded);
 
-		        printf("Temp: %d | Hum: %d | Valid: %d | "
-		               "App: %d | Mode: %d | Counter: %d | Fault: 0x%02X\r\n",
-		               decoded.temperature,
+		        int16_t temp_raw = decoded.temperature;
+		        long temp_abs = (temp_raw < 0)
+		                      ? -(long)temp_raw
+		                      :  (long)temp_raw;
+
+		        printf("Temp: %s%ld.%ld C | Hum: %d | Valid: %d | ",
+		               (temp_raw < 0) ? "-" : "",
+		               temp_abs / 10,
+		               temp_abs % 10,
+		               decoded.humidity,
+		               decoded.valid_flag);
+
+		        printf("Temp: %s%ld.%ld C | Hum: %d | Valid: %d | "
+		               "App: %d | Mode: %d | Counter: %d |  Success: %lu | Fault: 0x%02X\r\n",
+					   (temp_raw < 0) ? "-" : "",
+					   temp_abs / 10,
+					   temp_abs % 10,
 		               decoded.humidity,
 		               decoded.valid_flag,
 		               decoded.app_value,
 		               decoded.current_mode,
 		               decoded.rx_counter,
+					   can_tx_success_cnt,
 		               decoded.fault_bits);
 
 		        if (decoded.valid_flag == 0)
@@ -87,7 +104,7 @@ void Log_Task(void *pvParameters)
 		                   decoded.fault_bits);
 		        }
 
-		        if (decoded.app_value == 1 && current_state == 0)
+		        if (decoded.app_value > 0U && current_state == 0)
 		        {
 		            printf("Overload! Progress begin!\r\n");
 		            current_state = 1;
@@ -123,6 +140,11 @@ void Log_Task(void *pvParameters)
 
 			printf("CAN Bus - TX OK: %lu | TX FAIL: %lu | RX: %lu | BUS-OFF: %lu\r\n",
 						       can_tx_success_cnt, can_tx_fail_cnt, can_rx_cnt, can_busoff_cnt);
+
+			printf("CAN Queue - RX FULL:%lu | TX FULL:%lu | ACK QUEUE FAIL:%lu\r\n",
+			       can_rx_queue_full_cnt,
+			       can_tx_queue_full_cnt,
+			       can_ack_queue_fail_cnt);
 
 			printf("CAN Error - ACK:%lu | BIT:%lu | Last:0x%08lX | TEC:%u | REC:%u\r\n",
 			       can_ack_error_cnt,

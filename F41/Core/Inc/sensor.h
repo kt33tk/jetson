@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include "ControlCore.h"
 #include "Watchdog.h"
+#include "ADC_Sensor.h"
+#include "main.h"
 
 void Sensor_Task(void *pvParameters);
 

@@ -49,11 +49,11 @@ void Test_Task(void *pvParameters)
 	    // (假设当前已经在 AUTO 状态)
 	    ctx.current_mode = CTRL_MODE_AUTO;
 
-	    // 发送切入手动的命令
-	    cmd.has_new_cmd = 1;
-	    cmd.target_mode = CTRL_MODE_MANUAL;
-	    cmd.manual_request = 1; // 手动请求开启
-	    cmd.cmd_timestamp = current_time;
+//	    // 发送切入手动的命令
+//	    cmd.valid = 1;
+//	    cmd.command = CONTROL_CMD_MANUAL;
+//	    cmd.target_percent = 1; // 手动请求开启
+//	    cmd.timestamp = current_time;
 
 	    ControlCore_Step(&ctx, &sensor, &cmd, current_time);
 	    assert(ctx.current_mode == CTRL_MODE_MANUAL);

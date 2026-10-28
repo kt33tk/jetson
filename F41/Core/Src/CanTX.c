@@ -3,6 +3,7 @@
 extern QueueHandle_t Queue_Sensor_TX_t;
 extern QueueHandle_t Queue_Sensor_CAN_t;
 extern QueueHandle_t Queue_Control_TX_t;
+extern QueueHandle_t Queue_CAN_TX_t;
 
 extern CAN_HandleTypeDef hcan1;
 
@@ -11,112 +12,177 @@ extern TaskHandle_t WatchdogTaskHandle;
 extern volatile uint32_t can_tx_success_cnt;
 extern volatile uint32_t can_tx_fail_cnt;
 
-void Trigger_Send_0x280_ACK(uint8_t rx_counter)
+extern volatile uint32_t can_rx_queue_full_cnt;
+extern volatile uint32_t can_tx_queue_full_cnt;
+extern volatile uint32_t can_ack_queue_fail_cnt;
+
+BaseType_t CanTX_Enqueue(const Can_Frame_t *frame)
 {
-    CAN_TxHeaderTypeDef TxHeader;
-    uint32_t Tx_Mailbox;
-    uint8_t TxData[8] = {0};
-
-    // 1. 配置 0x280 的 CAN 帧头
-    TxHeader.StdId = 0x280;
-    TxHeader.ExtId = 0;
-    TxHeader.IDE = CAN_ID_STD;
-    TxHeader.RTR = CAN_RTR_DATA;
-    TxHeader.DLC = 8;
-    TxHeader.TransmitGlobalTime = DISABLE;
-
-    // 2. 组装负载数据
-    TxData[0] = 0x02;        // Echoed ID：用 0x02 代表是被 0x200 指令触发的
-    TxData[1] = rx_counter;  // 被拦截的重复 Counter 值
-    TxData[2] = 0x01;        // 状态码：0x01 代表 Counter 冲突拒绝执行
-
-    // 3. 计算并附加防伪指纹
-    TxData[7] = Calculate_CRC8_J1850(TxData, 7);
-
-    // 4. 调用 HAL 库发送并统计发送状态
-    if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) > 0) {
-        if (HAL_CAN_AddTxMessage(&hcan1, &TxHeader, TxData, &Tx_Mailbox) == HAL_OK) {
-
-        } else {
-            can_tx_fail_cnt++;    // 硬件级发送报错
-        }
-    } else {
-        can_tx_fail_cnt++;        // 邮箱堵塞
+    if ((frame == NULL) || (Queue_CAN_TX_t == NULL))
+    {
+        can_tx_queue_full_cnt++;
+        return pdFAIL;
     }
+
+    if (xQueueSend(Queue_CAN_TX_t, frame, 0) != pdPASS)
+    {
+        can_tx_queue_full_cnt++;
+        return pdFAIL;
+    }
+
+    return pdPASS;
+}
+
+void Trigger_Send_0x280_ACK(uint8_t counter, uint8_t status)
+{
+    Can_Frame_t frame = {0};
+
+    frame.id  = 0x280U;
+    frame.dlc = 8U;
+
+    frame.data[0] = 0x02U;
+    frame.data[1] = counter & 0x0FU;
+    frame.data[2] = status;
+    frame.data[3] = 0U;
+    frame.data[4] = 0U;
+    frame.data[5] = 0U;
+    frame.data[6] = 0U;
+    frame.data[7] = Calculate_CRC8_J1850(frame.data, 7U);
+
+    if (CanTX_Enqueue(&frame) != pdPASS)
+    {
+        can_ack_queue_fail_cnt++;
+    }
+}
+
+static BaseType_t CanTX_SendFrame(const Can_Frame_t *frame)      //仅该处可发送
+{
+    CAN_TxHeaderTypeDef tx_header;
+    uint32_t tx_mailbox;
+
+    if ((frame == NULL) || (frame->dlc > 8U))
+    {
+        can_tx_fail_cnt++;
+        return pdFAIL;
+    }
+
+    if (frame->id > 0x7FFU)
+    {
+        can_tx_fail_cnt++;
+        return pdFAIL;
+    }
+
+    tx_header.StdId = frame->id;
+    tx_header.ExtId = 0U;
+    tx_header.IDE = CAN_ID_STD;
+    tx_header.RTR = CAN_RTR_DATA;
+    tx_header.DLC = frame->dlc;
+    tx_header.TransmitGlobalTime = DISABLE;
+
+    if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) == 0U)
+    {
+        can_tx_fail_cnt++;
+        return pdFAIL;
+    }
+
+    if (HAL_CAN_AddTxMessage(&hcan1,
+                             &tx_header,
+                             (uint8_t *)frame->data,
+                             &tx_mailbox) != HAL_OK)
+    {
+        can_tx_fail_cnt++;
+        return pdFAIL;
+    }
+
+    /*
+     * 只有0x180状态帧需要送给Log任务解析。
+     * ACK不需要进入Queue_Sensor_CAN_t。
+     */
+    if (frame->id == 0x180U)
+    {
+        xQueueOverwrite(Queue_Sensor_CAN_t, frame);
+    }
+
+    return pdPASS;
+}
+
+static BaseType_t CanTX_Queue_0x180(void)
+{
+    Sensor_Sample_t sensor = {0};
+    ControlContext_t control = {0};
+    SensorMsg_t message = {0};
+    Can_Frame_t frame = {0};
+
+    /*
+     * 两份快照必须都已经产生，才能生成有效状态帧。
+     */
+    if (xQueuePeek(Queue_Sensor_TX_t, &sensor, 0) != pdTRUE)
+    {
+        return pdFAIL;
+    }
+
+    if (xQueuePeek(Queue_Control_TX_t, &control, 0) != pdTRUE)
+    {
+        return pdFAIL;
+    }
+
+    frame.id = 0x180U;
+    frame.dlc = 8U;
+
+    message.valid_flag = sensor.valid_flag;
+    message.app_value = control.app_value;
+    message.current_mode = control.current_mode;
+    message.fault_bits = control.fault_bits;
+
+    if (sensor.valid_flag == 1U)
+    {
+        message.temperature = sensor.temperature;
+        message.humidity = sensor.humidity;
+    }
+
+    Pack_Msg_0x180(&message, frame.data);
+
+    /*
+     * 不再直接调用HAL，而是和ACK一样进入统一发送队列。
+     */
+    return CanTX_Enqueue(&frame);
 }
 
 void CanTX_Task(void *pvParameters)
 {
-	Can_Frame_t sensor_receive = {0};
-	Sensor_Sample_t TX_Receive = {0};
-	ControlContext_t control_receive = {0};
+    Can_Frame_t frame = {0};
 
-	sensor_receive.id = 0x180;
-	sensor_receive.dlc = 8;
+    const TickType_t status_period = pdMS_TO_TICKS(1000);
+    TickType_t last_status_time = xTaskGetTickCount();
 
-	TickType_t xLastWaitTime = xTaskGetTickCount();
-	const TickType_t xFrequency = pdMS_TO_TICKS(1000);
+    for (;;)
+    {
+        TickType_t current_time = xTaskGetTickCount();
 
-	//8位数据结构定义：温度高8+温度低8+湿度高8+湿度低8+传感器有效+风扇状态+是否正常
-	for(;;)
-		{
-			CAN_TxHeaderTypeDef TxHeader;
-			uint32_t Tx_Mailbox;
+        /*
+         * 每隔1秒生成一次0x180状态帧。
+         * 这里仅负责打包并入队，不访问HAL。
+         */
+        if ((current_time - last_status_time) >= status_period)
+        {
+            last_status_time = current_time;
+            (void)CanTX_Queue_0x180();
+        }
 
-			TxHeader.StdId = 0x180;
-			TxHeader.ExtId = 0;
-			TxHeader.DLC = 8;
-			TxHeader.IDE = CAN_ID_STD;
-			TxHeader.RTR = CAN_RTR_DATA;
-			TxHeader.TransmitGlobalTime = DISABLE;
+        /*
+         * 有ACK或状态帧进入队列时，最多等待10ms便立即发送。
+         * 不再每发送一帧就等待1秒。
+         */
+        if (xQueueReceive(Queue_CAN_TX_t, &frame, pdMS_TO_TICKS(10)) == pdPASS)
+        {
+            (void)CanTX_SendFrame(&frame);
+        }
 
-			if(xQueuePeek(Queue_Sensor_TX_t, &TX_Receive, 0) == pdTRUE)
-			{
-				if(xQueuePeek(Queue_Control_TX_t, &control_receive, 0) == pdTRUE)
-				{
-					SensorMsg_t msg_to_send = {0};
-					msg_to_send.valid_flag = TX_Receive.valid_flag;
-					msg_to_send.app_value = control_receive.app_value;
-					msg_to_send.current_mode = control_receive.current_mode;
-					msg_to_send.fault_bits = control_receive.fault_bits;
-
-					if(TX_Receive.valid_flag == 1)
-					{
-						msg_to_send.temperature = TX_Receive.temperature;
-						msg_to_send.humidity = TX_Receive.humidity;
-					}
-					else
-					{
-						msg_to_send.temperature = 0;
-						msg_to_send.humidity = 0;
-					}
-
-					Pack_Msg_0x180(&msg_to_send, sensor_receive.data);
-				}
-			}
-
-			xQueueOverwrite(Queue_Sensor_CAN_t, &sensor_receive);
-
-			if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) > 0)
-			{
-			    if (HAL_CAN_AddTxMessage(&hcan1, &TxHeader, sensor_receive.data, &Tx_Mailbox) == HAL_OK)
-			    {
-			        can_tx_success_cnt++; // 报文成功投递给硬件
-			    }
-			    else
-			    {
-			        can_tx_fail_cnt++;    // CAN 硬件外设返回 ERROR
-			    }
-			}
-			else
-			{
-			    can_tx_fail_cnt++;        // 三个发送邮箱全部满载，抛弃当前帧
-			}
-
-			xTaskNotify(WatchdogTaskHandle, HEARTBEAT_CANTX, eSetBits);
-
-			vTaskDelayUntil(&xLastWaitTime, xFrequency);
-		}
+        /*
+         * CanTX任务持续工作，定期通知看门狗。
+         */
+        xTaskNotify(WatchdogTaskHandle, HEARTBEAT_CANTX, eSetBits);
+    }
 }
 
 void HAL_CAN_TxMailbox0CompleteCallback(CAN_HandleTypeDef *hcan)

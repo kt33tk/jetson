@@ -32,6 +32,7 @@
 #include "crc8.h"
 #include "CanRX.h"
 #include "Watchdog.h"
+#include "ADC_Sensor.h"
 #include <string.h>
 /* USER CODE END Includes */
 
@@ -51,9 +52,14 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
+
 CAN_HandleTypeDef hcan1;
 
 IWDG_HandleTypeDef hiwdg;
+
+TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 
@@ -71,6 +77,8 @@ QueueHandle_t Queue_Sensor_Control_t; //传感器数据->控制器
 QueueHandle_t Queue_Control_TX_t;     //控制器->CAN总线
 QueueHandle_t Queue_CAN_RX_t;       // CAN中断 → CanRX任务
 QueueHandle_t Queue_Control_Cmd_t;  // UART/CAN → Control任务
+QueueHandle_t Queue_ADC_Raw_t; //ADC-> sensor
+QueueHandle_t Queue_CAN_TX_t;  //280->CanTX
 
 uint8_t receive_byte = 0;
 /* USER CODE END PV */
@@ -78,9 +86,12 @@ uint8_t receive_byte = 0;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_IWDG_Init(void);
 static void MX_CAN1_Init(void);
+static void MX_ADC1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -129,9 +140,12 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_IWDG_Init();
   MX_CAN1_Init();
+  MX_ADC1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   __HAL_DBGMCU_FREEZE_IWDG();
 
@@ -174,9 +188,11 @@ int main(void)
   Queue_Control_TX_t = xQueueCreate(1, sizeof(ControlContext_t));
   Queue_CAN_RX_t = xQueueCreate(16, sizeof(Can_Frame_t));
   Queue_Control_Cmd_t = xQueueCreate(4, sizeof(ControlCommand_t));
+  Queue_ADC_Raw_t = xQueueCreate(1, sizeof(uint16_t));
+  Queue_CAN_TX_t = xQueueCreate(16, sizeof(Can_Frame_t));
 
-  if (Queue_Sensor_TX_t == NULL || Queue_Sensor_Control_t == NULL ||
-        Queue_Sensor_CAN_t == NULL || Queue_Control_TX_t == NULL || Queue_Control_Cmd_t || Queue_CAN_RX_t == NULL)
+  if (Queue_Sensor_TX_t == NULL || Queue_Sensor_Control_t == NULL || Queue_CAN_TX_t == NULL ||
+        Queue_Sensor_CAN_t == NULL || Queue_Control_TX_t == NULL || Queue_Control_Cmd_t == NULL || Queue_CAN_RX_t == NULL || Queue_ADC_Raw_t == NULL)
   {
       printf("[FATAL] Queue create failed!\r\n");
       HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET); // 强制关断
@@ -278,6 +294,58 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.ScanConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_TRGO;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
   * @brief CAN1 Initialization Function
   * @param None
   * @retval None
@@ -326,16 +394,23 @@ static void MX_CAN1_Init(void)
   if(HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK) {
       Error_Handler();
   }
-  HAL_CAN_Start(&hcan1);
-  HAL_CAN_ActivateNotification(
-      &hcan1,
-      CAN_IT_TX_MAILBOX_EMPTY |
-      CAN_IT_RX_FIFO0_MSG_PENDING |
-      CAN_IT_ERROR_WARNING |
-      CAN_IT_ERROR_PASSIVE |
-      CAN_IT_BUSOFF |
-      CAN_IT_LAST_ERROR_CODE |
-      CAN_IT_ERROR);
+  if (HAL_CAN_Start(&hcan1) != HAL_OK)
+  {
+      printf("[FATAL ERROR] HAL_CAN_Start Failed!\r\n");
+      Error_Handler(); // 进入错误处理死循环[cite: 22]
+  }
+  if (HAL_CAN_ActivateNotification(&hcan1,
+            CAN_IT_TX_MAILBOX_EMPTY |
+            CAN_IT_RX_FIFO0_MSG_PENDING |
+            CAN_IT_ERROR_WARNING |
+            CAN_IT_ERROR_PASSIVE |
+            CAN_IT_BUSOFF |
+            CAN_IT_LAST_ERROR_CODE |
+            CAN_IT_ERROR) != HAL_OK)
+  {
+      printf("[FATAL ERROR] HAL_CAN_ActivateNotification Failed!\r\n");
+      Error_Handler(); // 进入错误处理死循环[cite: 22]
+  }
   /* USER CODE END CAN1_Init 2 */
 
 }
@@ -365,6 +440,51 @@ static void MX_IWDG_Init(void)
   /* USER CODE BEGIN IWDG_Init 2 */
 
   /* USER CODE END IWDG_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 8399;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 99;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -402,6 +522,22 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 6, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -415,8 +551,8 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */

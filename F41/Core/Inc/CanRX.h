@@ -7,6 +7,7 @@
 #include "queue.h"
 #include "Can_protocol.h"
 #include "CanTX.h"
+#include <string.h>
 
 typedef struct {
     uint32_t id;

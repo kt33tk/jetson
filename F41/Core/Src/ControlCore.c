@@ -10,18 +10,19 @@ void ControlCore_Init(ControlContext_t *ctx, uint32_t current_time)
 	ctx->valid_sample_cnt = 0;
 	ctx->last_sensor_time = current_time;
 	ctx->last_cmd_time = current_time;
+	ctx->relay_state = 0U;
 }
 
 void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, ControlCommand_t *cmd, uint32_t current_time)
 {
-	if(sensor->valid_flag == 1)
+	if (sensor->valid_flag == 1U)
 	{
-		ctx->last_sensor_time = current_time;
+	    ctx->last_sensor_time = current_time;
 	}
-	else
+	else if (ctx->current_mode != CTRL_MODE_INIT)
 	{
-		ctx->current_mode = CTRL_MODE_SAFE;
-		ctx->fault_bits |= 0x01;
+	    ctx->current_mode = CTRL_MODE_SAFE;
+	    ctx->fault_bits |= 0x01U;
 	}
 
 	switch(ctx->current_mode){
@@ -47,18 +48,35 @@ void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, ControlCom
 				ctx->current_mode = CTRL_MODE_SAFE;
 				ctx->fault_bits |= 0x02;
 			}
+
+			if (cmd != NULL && cmd->valid == 1U)
+			{
+			    if (cmd->command == CONTROL_CMD_SAFE)
+			    {
+			        ctx->current_mode = CTRL_MODE_SAFE;
+			        ctx->app_value = 0;
+			        ctx->cmd_value = 0;
+			        break;
+			    }
+
+			    /*
+			     * INIT期间的AUTO、MANUAL、CLEAR已经进入状态机，
+			     * 但根据安全规则暂不执行。
+			     */
+			}
+
 			break;
 
 		case CTRL_MODE_AUTO:
-			if(sensor->temperature >= 30)
+			if (sensor->temperature >= 300)
 			{
-				ctx->app_value = 1;
-				ctx->cmd_value = 1;
+				ctx->cmd_value = 100U;
+				ctx->app_value = 100U;
 			}
-			else if(sensor->temperature <= 28)
+			else if (sensor->temperature <= 280)
 			{
-				ctx->app_value = 0;
-				ctx->cmd_value = 0;
+				ctx->cmd_value = 0U;
+				ctx->app_value = 0U;
 			}
 
 			if((current_time - ctx->last_sensor_time) >= 2000)
@@ -67,49 +85,77 @@ void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, ControlCom
 				ctx->fault_bits |= 0x04;
 			}
 
-			if(cmd != 0 && cmd->has_new_cmd == 1)
+			if (cmd != NULL && cmd->valid == 1U)
 			{
-				if(cmd->target_mode == CTRL_MODE_MANUAL)
-				{
-					ctx->current_mode = CTRL_MODE_MANUAL;
-					ctx->app_value = cmd->manual_request;
-					ctx->cmd_value = cmd->manual_request;
-					cmd->has_new_cmd = 0;
-					ctx->last_cmd_time = current_time;
-					break;
-				}
+			    switch (cmd->command)
+			    {
+			        case CONTROL_CMD_AUTO:
+			            /* 已经在AUTO，保持不变 */
+			            break;
+
+			        case CONTROL_CMD_MANUAL:
+			            ctx->current_mode = CTRL_MODE_MANUAL;
+			            ctx->app_value = cmd->target_percent;
+			            ctx->cmd_value = cmd->target_percent;
+			            ctx->last_cmd_time = current_time;
+			            break;
+
+			        case CONTROL_CMD_SAFE:
+			            ctx->current_mode = CTRL_MODE_SAFE;
+			            ctx->app_value = 0;
+			            ctx->cmd_value = 0;
+			            break;
+
+			        case CONTROL_CMD_CLEAR_FAULT:
+			            /* AUTO状态不接受CLEAR */
+			            break;
+
+			        default:
+			            break;
+			    }
 			}
 
 			break;
 
 		case CTRL_MODE_MANUAL:
-			if(cmd != 0 && cmd->has_new_cmd == 1)
+			if (cmd != NULL && cmd->valid == 1U)
 			{
-				if(cmd->target_mode == CTRL_MODE_MANUAL)
-				{
-					ctx->cmd_value = cmd->manual_request;
-					ctx->app_value = cmd->manual_request;
-				}else if(cmd->target_mode == CTRL_MODE_AUTO)
-				{
-					ctx->current_mode = CTRL_MODE_AUTO;
-					ctx->app_value = 0;
-					ctx->cmd_value = 0;
-				}else if(cmd->target_mode == CTRL_MODE_SAFE)
-				{
-					ctx->current_mode = CTRL_MODE_SAFE;
-				}
+			    switch (cmd->command)
+			    {
+			        case CONTROL_CMD_AUTO:
+			            ctx->current_mode = CTRL_MODE_AUTO;
+			            ctx->app_value = 0;
+			            ctx->cmd_value = 0;
+			            break;
 
-				ctx->last_cmd_time = current_time;
-				cmd->has_new_cmd = 0;
+			        case CONTROL_CMD_MANUAL:
+			            ctx->app_value = cmd->target_percent;
+			            ctx->cmd_value = cmd->target_percent;
+			            ctx->last_cmd_time = current_time;
+			            break;
+
+			        case CONTROL_CMD_SAFE:
+			            ctx->current_mode = CTRL_MODE_SAFE;
+			            ctx->app_value = 0;
+			            ctx->cmd_value = 0;
+			            break;
+
+			        case CONTROL_CMD_CLEAR_FAULT:
+			            /* MANUAL状态不接受CLEAR */
+			            break;
+
+			        default:
+			            break;
+			    }
 			}
 
-			if((current_time - ctx->last_cmd_time) >= 2000)
+			if (ctx->current_mode == CTRL_MODE_MANUAL &&
+			    (current_time - ctx->last_cmd_time) >= 2000U)
 			{
-				ctx->current_mode = CTRL_MODE_SAFE;
-				ctx->fault_bits |= 0x08;
-				ctx->app_value = 0;
-				ctx->cmd_value = 0;
-				break;
+			    ctx->current_mode = CTRL_MODE_SAFE;
+			    ctx->fault_bits |= 0x08U;
+			    ctx->app_value = 0;
+			    ctx->cmd_value = 0;
 			}
 
 			break;
@@ -118,19 +164,41 @@ void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, ControlCom
 			ctx->cmd_value = 0;
 			ctx->app_value = 0;
 
-			if(cmd != 0 && cmd->has_new_cmd && cmd->target_mode == CTRL_MODE_INIT)
+			if (cmd != NULL && cmd->valid == 1U)
 			{
-				// 核心修改：必须同时满足传感器有效，且距离上次传感器有效时间未超过2000ms（未超时）
-				if((sensor->valid_flag == 1) && ((current_time - ctx->last_sensor_time) < 2000))
-				{
-					ctx->fault_bits = 0;
-					ctx->init_start_time = current_time;
-					ctx->valid_sample_cnt = 0;
-					ctx->current_mode = CTRL_MODE_INIT;
-				}
+			    switch (cmd->command)
+			    {
+			        case CONTROL_CMD_CLEAR_FAULT:
+			            if ((sensor->valid_flag == 1U) &&
+			                ((current_time -
+			                  ctx->last_sensor_time) < 2000U))
+			            {
+			                ctx->fault_bits = 0;
+			                ctx->init_start_time = current_time;
+			                ctx->valid_sample_cnt = 0;
+			                ctx->current_mode = CTRL_MODE_INIT;
+			            }
+			            break;
 
-				cmd->has_new_cmd = 0;
+			        case CONTROL_CMD_SAFE:
+			            /* 已经在SAFE，保持 */
+			            break;
+
+			        case CONTROL_CMD_AUTO:
+			        case CONTROL_CMD_MANUAL:
+			            /* SAFE状态下禁止直接恢复运行 */
+			            break;
+
+			        default:
+			            break;
+			    }
 			}
+
 			break;
+	}
+
+	if (cmd != NULL)
+	{
+		cmd->valid = 0U;
 	}
 }

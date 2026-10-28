@@ -12,6 +12,12 @@ volatile uint32_t can_last_error = 0;
 volatile uint8_t can_last_tec = 0;
 volatile uint8_t can_last_rec = 0;
 
+volatile uint32_t can_rx_queue_full_cnt = 0;
+volatile uint32_t can_tx_queue_full_cnt = 0;
+volatile uint32_t can_ack_queue_fail_cnt = 0;
+
+static uint8_t last_accepted_counter = 0xFFU;
+
 //can报错部分以及通信转译部分需要重新回来看
 
 void Pack_Msg_0x180(SensorMsg_t *data, uint8_t *payload)
@@ -52,34 +58,59 @@ void Unpack_Msg_0x180(uint8_t *payload, SensorMsg_t *data)
     data->rx_counter   = payload[6] & 0x0F;        // 提取低 4 位 (供过滤漏斗核对)
 }
 
-void Pack_Msg_0x200(ControlCmd_t *cmd, uint8_t *payload)
+void Pack_Msg_0x200(ControlCommand_t *cmd, uint8_t *payload)
 {
-    payload[0] = cmd->target_mode;
+    uint16_t raw_target = 0;
 
-    payload[1] = (cmd->target_value >> 8) & 0xFF;
-    payload[2] = cmd->target_value & 0xFF;
+    payload[0] = (uint8_t)cmd->command;
 
-    payload[3] = 0x00; // 保留空闲字节
-    payload[4] = 0x00;
-    payload[5] = 0x00;
+    if (cmd->command == CONTROL_CMD_MANUAL)
+    {
+        uint8_t percent =
+            (cmd->target_percent <= 100U)
+            ? cmd->target_percent
+            : 100U;
 
-    // Rolling Counter
+        raw_target = (uint16_t)percent * 10U;
+    }
+
+    payload[1] = (uint8_t)(raw_target >> 8);
+    payload[2] = (uint8_t)(raw_target & 0xFFU);
+
+    payload[3] = 0;
+    payload[4] = 0;
+    payload[5] = 0;
+
     static uint8_t counter_200 = 0;
-    counter_200 = (counter_200 + 1) & 0x0F;
+    counter_200 = (counter_200 + 1U) & 0x0FU;
     payload[6] = counter_200;
 
-    // CRC
     payload[7] = Calculate_CRC8_J1850(payload, 7);
 }
 
-void Unpack_Msg_0x200(uint8_t *payload, ControlCmd_t *cmd)
+void Unpack_Msg_0x200(uint8_t *payload, ControlCommand_t *cmd)
 {
-    cmd->target_mode  = payload[0];
-    cmd->target_value = (payload[1] << 8) | payload[2];
-    cmd->rx_counter   = payload[6] & 0x0F;
+    uint16_t raw_target =
+        ((uint16_t)payload[1] << 8) |
+        (uint16_t)payload[2];
+
+    cmd->command =
+        (Control_CommandCode_t)payload[0];
+
+    if (cmd->command == CONTROL_CMD_MANUAL)
+    {
+        cmd->target_percent =
+            (uint8_t)((raw_target + 5U) / 10U);
+    }
+    else
+    {
+        cmd->target_percent = 0;
+    }
+
+    cmd->rx_counter = payload[6] & 0x0FU;
 }
 
-Rx_Filter_Status_t Filter_And_Decode_0x200(Can_Frame_t *rx_frame, ControlCmd_t *out_cmd)
+Rx_Filter_Status_t Filter_And_Decode_0x200(Can_Frame_t *rx_frame, ControlCommand_t *out_cmd)
 {
     // 1. 检查 ID
     if (rx_frame->id != 0x200) {
@@ -97,21 +128,45 @@ Rx_Filter_Status_t Filter_And_Decode_0x200(Can_Frame_t *rx_frame, ControlCmd_t *
         return RX_ERR_CRC; // CRC 错误，说明总线受到严重干扰，直接丢弃
     }
 
-    // 4. 核对 Counter[cite: 16]
-    uint8_t current_counter = rx_frame->data[6] & 0x0F;
-    static uint8_t last_valid_counter = 0xFF; // 初始设为 0xFF(无效值)，确保第一帧能通过
+    uint8_t command = rx_frame->data[0];
 
-    if (current_counter == last_valid_counter) {
-        // 如果和上次的 counter 一模一样，说明是发送方没收到应答触发的重发[cite: 16]
+    uint16_t raw_target =
+        ((uint16_t)rx_frame->data[1] << 8) |
+        (uint16_t)rx_frame->data[2];
+
+    if (command < CONTROL_CMD_AUTO ||
+        command > CONTROL_CMD_CLEAR_FAULT)
+    {
+        return RX_ERR_PARAM;
+    }
+
+    if (command == CONTROL_CMD_MANUAL)
+    {
+        if (raw_target > CAN_TARGET_RAW_MAX)
+        {
+            return RX_ERR_PARAM;
+        }
+    }
+    else
+    {
+        /* AUTO、SAFE、CLEAR的目标值必须为0 */
+        if (raw_target != 0U)
+        {
+            return RX_ERR_PARAM;
+        }
+    }
+
+    // 4. 核对 Counter[cite: 16]
+    uint8_t current_counter = rx_frame->data[6] & 0x0FU;
+
+    if (current_counter == last_accepted_counter)
+    {
         return RX_DUPLICATE;
     }
 
     // 5. 全部通过，转换为应用层的 ControlCmd_t 结构体[cite: 16]
     // 这里调用你之前写好的 Unpack 函数
     Unpack_Msg_0x200(rx_frame->data, out_cmd);
-
-    // 更新历史 counter
-    last_valid_counter = current_counter;
 
     return RX_VALID_NEW;
 }
@@ -127,4 +182,9 @@ void Unpack_Msg_0x280(uint8_t *payload, AckMsg_t *data)
     data->echoed_id     = payload[0]; // Byte 0 放原始 ID
     data->duplicate_cnt = payload[1]; // Byte 1 放重复的 Counter
     data->status_code   = payload[2]; // Byte 2 放状态码
+}
+
+void Commit_0x200_Counter(uint8_t counter)
+{
+    last_accepted_counter = counter & 0x0FU;
 }

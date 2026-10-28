@@ -25,38 +25,39 @@ void Control_Task(void *pvParameters)
 			Control_Receive.valid_flag = 0;
 		}
 
-		if(xQueueReceive(Queue_Control_Cmd_t, &cmd, 0) == pdTRUE)
+		memset(&cmd, 0, sizeof(cmd));
+
+		if (xQueueReceive(
+		        Queue_Control_Cmd_t,
+		        &cmd,
+		        0) != pdTRUE)
 		{
-			if(cmd.has_new_cmd == 1)
-			{
-				if(cmd.target_mode == 2)
-				{
-					HAL_GPIO_WritePin(MODE2_GPIO_Port, MODE2_Pin, GPIO_PIN_SET);
-				}
+		    cmd.valid = 0;
+		}
 
-				if(cmd.manual_request == 1)
-				{
-					HAL_GPIO_WritePin(VALUE_GPIO_Port, VALUE_Pin, GPIO_PIN_SET);
-				}
-			}
+		/* 注意：此处之前绝不能清除cmd.valid */
+		ControlCore_Step(
+		    &ctx,
+		    &Control_Receive,
+		    &cmd,
+		    xTaskGetTickCount()
+		);
 
-			cmd.has_new_cmd = 0;
+		if (ctx.app_value > 0U)
+		{
+		    HAL_GPIO_WritePin(
+		        LED_Control_GPIO_Port,
+		        LED_Control_Pin,
+		        GPIO_PIN_SET
+		    );
 		}
 		else
 		{
-		    // 没有收到命令，清空标志位，防止把旧命令重复执行
-			cmd.has_new_cmd = 0;
-		}
-
-		ControlCore_Step(&ctx, &Control_Receive, &cmd, xTaskGetTickCount());
-
-		if(ctx.app_value == 1)
-		{
-			HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_SET);
-		}
-		else
-		{
-			HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET);
+		    HAL_GPIO_WritePin(
+		        LED_Control_GPIO_Port,
+		        LED_Control_Pin,
+		        GPIO_PIN_RESET
+		    );
 		}
 
 		xTaskNotify(WatchdogTaskHandle, HEARTBEAT_CONTROL, eSetBits);
