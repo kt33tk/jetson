@@ -5,6 +5,9 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "SystemSync.h"
+#include "event_groups.h"
+#include "semphr.h"
 #include <stdlib.h>
 #include "ControlCore.h"
 #include "Watchdog.h"

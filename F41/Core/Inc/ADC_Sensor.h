@@ -6,6 +6,9 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "SystemSync.h"
+#include "event_groups.h"
+#include "semphr.h"
 #include <main.h>
 #include <stdio.h>
 #include <stdint.h>

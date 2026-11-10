@@ -10,6 +10,7 @@
 #include "main.h"
 #include "task.h"
 #include "queue.h"
+#include "SystemSync.h"
 #include <stdio.h>
 #include <stdint.h>
 

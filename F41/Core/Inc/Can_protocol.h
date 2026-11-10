@@ -23,6 +23,11 @@ extern volatile uint32_t can_rx_queue_full_cnt;
 extern volatile uint32_t can_tx_queue_full_cnt;
 extern volatile uint32_t can_ack_queue_fail_cnt;
 
+extern volatile uint32_t can_mailbox_timeout_cnt;
+extern volatile uint32_t can_mailbox_overflow_cnt;
+
+extern volatile uint32_t control_cmd_queue_full_cnt;
+
 typedef struct {
     int16_t temperature;
     int16_t humidity;

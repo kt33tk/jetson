@@ -2,25 +2,20 @@
 
 uint16_t adc_buffer[ADC_BUF_LEN];
 
-extern QueueHandle_t Queue_ADC_Raw_t;
 extern ADC_HandleTypeDef hadc1;
 extern TIM_HandleTypeDef htim2;
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
+    BaseType_t higher_priority_task_woken = pdFALSE;
+
     if (hadc->Instance == ADC1)
     {
-        uint32_t sum = 0;
-        for (int i = 0; i < ADC_BUF_LEN; i++)
-        {
-            sum += adc_buffer[i];
-        }
-        uint16_t adc_avg = sum / ADC_BUF_LEN; // 计算滑动/块均值
+        xSemaphoreGiveFromISR(
+            AdcDmaDoneSemaphore,
+            &higher_priority_task_woken
+        );
 
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        // 将平均值发给 Sensor 任务
-        xQueueSendFromISR(Queue_ADC_Raw_t, &adc_avg, &xHigherPriorityTaskWoken);
-
-        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(higher_priority_task_woken);
     }
 }

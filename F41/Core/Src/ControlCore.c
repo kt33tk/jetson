@@ -11,39 +11,93 @@ void ControlCore_Init(ControlContext_t *ctx, uint32_t current_time)
 	ctx->last_sensor_time = current_time;
 	ctx->last_cmd_time = current_time;
 	ctx->relay_state = 0U;
+	ctx->auto_on_temp_x10 = 300;
+	ctx->auto_off_temp_x10 = 280;
+	ctx->manual_timeout_ms = 2000U;
+	ctx->sensor_timeout_ms = 2000U;
 }
 
-void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, ControlCommand_t *cmd, uint32_t current_time)
+void ControlCore_ApplyConfig(ControlContext_t *ctx, int16_t auto_on_temp_x10, int16_t auto_off_temp_x10, uint32_t manual_timeout_ms, uint32_t sensor_timeout_ms)
 {
-	if (sensor->valid_flag == 1U)
+    if (ctx == NULL)
+    {
+        return;
+    }
+
+    if (auto_off_temp_x10 >= auto_on_temp_x10)
+    {
+        return;
+    }
+
+    ctx->auto_on_temp_x10 = auto_on_temp_x10;
+    ctx->auto_off_temp_x10 = auto_off_temp_x10;
+    ctx->manual_timeout_ms = manual_timeout_ms;
+    ctx->sensor_timeout_ms = sensor_timeout_ms;
+}
+
+void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, uint8_t sensor_updated, ControlCommand_t *cmd, uint32_t current_time)
+{
+	/*
+	 * 只有真正收到一条新传感器消息时，
+	 * 才检查这条消息是否有效。
+	 */
+	if (sensor_updated != 0U)
 	{
-	    ctx->last_sensor_time = current_time;
+	    if (sensor->valid_flag == 1U)
+	    {
+	        /*
+	         * 收到新的有效样本。
+	         * 记录最后一次有效样本时间。
+	         */
+	        ctx->last_sensor_time = current_time;
+	    }
+	    else if (ctx->current_mode != CTRL_MODE_INIT)
+	    {
+	        /*
+	         * 确实收到了一条新消息，
+	         * 但消息明确表示传感器无效。
+	         */
+	        ctx->current_mode = CTRL_MODE_SAFE;
+	        ctx->fault_bits |= 0x01U;
+	    }
 	}
-	else if (ctx->current_mode != CTRL_MODE_INIT)
+
+	/*
+	 * AUTO或MANUAL运行期间，
+	 * 长时间没有收到新的有效传感器样本。
+	 */
+	if (((ctx->current_mode == CTRL_MODE_AUTO) || (ctx->current_mode == CTRL_MODE_MANUAL)) && ((current_time - ctx->last_sensor_time) >= ctx->sensor_timeout_ms))
 	{
 	    ctx->current_mode = CTRL_MODE_SAFE;
-	    ctx->fault_bits |= 0x01U;
+	    ctx->fault_bits |= 0x04U;
 	}
 
 	switch(ctx->current_mode){
 		case CTRL_MODE_INIT:
 			ctx->app_value = 0;
-			if(sensor->valid_flag == 1)
+			if (sensor_updated != 0U)
 			{
-				ctx->valid_sample_cnt ++;
+			    if (sensor->valid_flag == 1U)
+			    {
+			        ctx->valid_sample_cnt++;
 
-				if(ctx->valid_sample_cnt >= 3)
-				{
-					ctx->current_mode = CTRL_MODE_AUTO;
-					ctx->valid_sample_cnt = 0;
-				}
-			}
-			else
-			{
-				ctx->valid_sample_cnt = 0;
+			        if (ctx->valid_sample_cnt >= 3U)
+			        {
+			            ctx->current_mode = CTRL_MODE_AUTO;
+			            ctx->valid_sample_cnt = 0U;
+			        }
+			    }
+			    else
+			    {
+			        /*
+			         * 收到了一条新的无效样本，
+			         * 因此连续有效样本重新计数。
+			         */
+			        ctx->valid_sample_cnt = 0U;
+			    }
 			}
 
-			if((current_time - ctx->init_start_time) > 8000)
+			if((current_time - ctx->init_start_time) > INIT_TIMEOUT_MS)
 			{
 				ctx->current_mode = CTRL_MODE_SAFE;
 				ctx->fault_bits |= 0x02;
@@ -68,21 +122,18 @@ void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, ControlCom
 			break;
 
 		case CTRL_MODE_AUTO:
-			if (sensor->temperature >= 300)
+			if ((sensor_updated != 0U) && (sensor->valid_flag == 1U))
 			{
-				ctx->cmd_value = 100U;
-				ctx->app_value = 100U;
-			}
-			else if (sensor->temperature <= 280)
-			{
-				ctx->cmd_value = 0U;
-				ctx->app_value = 0U;
-			}
-
-			if((current_time - ctx->last_sensor_time) >= 2000)
-			{
-				ctx->current_mode = CTRL_MODE_SAFE;
-				ctx->fault_bits |= 0x04;
+			    if (sensor->temperature >= ctx->auto_on_temp_x10)
+			    {
+			        ctx->cmd_value = 100U;
+			        ctx->app_value = 100U;
+			    }
+			    else if (sensor->temperature <= ctx->auto_off_temp_x10)
+			    {
+			        ctx->cmd_value = 0U;
+			        ctx->app_value = 0U;
+			    }
 			}
 
 			if (cmd != NULL && cmd->valid == 1U)
@@ -149,8 +200,7 @@ void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, ControlCom
 			    }
 			}
 
-			if (ctx->current_mode == CTRL_MODE_MANUAL &&
-			    (current_time - ctx->last_cmd_time) >= 2000U)
+			if (ctx->current_mode == CTRL_MODE_MANUAL && (current_time - ctx->last_cmd_time) >= ctx->manual_timeout_ms)
 			{
 			    ctx->current_mode = CTRL_MODE_SAFE;
 			    ctx->fault_bits |= 0x08U;
@@ -171,7 +221,7 @@ void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, ControlCom
 			        case CONTROL_CMD_CLEAR_FAULT:
 			            if ((sensor->valid_flag == 1U) &&
 			                ((current_time -
-			                  ctx->last_sensor_time) < 2000U))
+			                  ctx->last_sensor_time) < ctx->sensor_timeout_ms))
 			            {
 			                ctx->fault_bits = 0;
 			                ctx->init_start_time = current_time;

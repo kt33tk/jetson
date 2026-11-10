@@ -10,6 +10,9 @@
 #include "ControlCore.h"
 #include <string.h>
 #include "Watchdog.h"
+#include "SystemSync.h"
+#include "NVM.h"
+#include "Can_protocol.h"
 
 void Control_Task(void *pvParameters);
 

@@ -9,11 +9,13 @@ extern TaskHandle_t CanTXTaskHandle;
 extern TaskHandle_t WatchdogTaskHandle;
 
 extern volatile uint32_t can_tx_success_cnt;
+extern volatile uint32_t control_cmd_queue_full_cnt;
 
 void Log_Task(void *pvParameters)
 {
 	Can_Frame_t CAN_Receive = {0};
 	uint8_t current_state = 0;
+	DiagSnapshot_t diag_snapshot = {0};
 
 	TickType_t last_monitor_time = xTaskGetTickCount();
 	const TickType_t monitor_interval = pdMS_TO_TICKS(5000);
@@ -73,13 +75,6 @@ void Log_Task(void *pvParameters)
 		                      ? -(long)temp_raw
 		                      :  (long)temp_raw;
 
-		        printf("Temp: %s%ld.%ld C | Hum: %d | Valid: %d | ",
-		               (temp_raw < 0) ? "-" : "",
-		               temp_abs / 10,
-		               temp_abs % 10,
-		               decoded.humidity,
-		               decoded.valid_flag);
-
 		        printf("Temp: %s%ld.%ld C | Hum: %d | Valid: %d | "
 		               "App: %d | Mode: %d | Counter: %d |  Success: %lu | Fault: 0x%02X\r\n",
 					   (temp_raw < 0) ? "-" : "",
@@ -127,6 +122,23 @@ void Log_Task(void *pvParameters)
 			// 更新时间戳，重新开始下一个 5 秒倒计时
 			last_monitor_time = current_time;
 
+			if (DiagSnapshot_Copy(&diag_snapshot) == pdPASS)
+			    {
+			        printf("Diag - TempX10:%d | Valid:%u | Mode:%u | "
+			               "Cmd:%u | App:%u | Relay:%u | Fault:0x%02X\r\n",
+			               diag_snapshot.temperature_x10,
+			               diag_snapshot.sensor_valid,
+			               diag_snapshot.control_mode,
+			               diag_snapshot.cmd_value,
+			               diag_snapshot.app_value,
+			               diag_snapshot.relay_state,
+			               diag_snapshot.fault_bits);
+			    }
+
+			EventBits_t event_bits = xEventGroupGetBits(SystemEventGroup);
+
+			printf("System Events: 0x%02lX\r\n", (unsigned long)event_bits);
+
 			size_t free_heap = xPortGetFreeHeapSize();
 			size_t min_ever_heap = xPortGetMinimumEverFreeHeapSize();
 
@@ -141,9 +153,10 @@ void Log_Task(void *pvParameters)
 			printf("CAN Bus - TX OK: %lu | TX FAIL: %lu | RX: %lu | BUS-OFF: %lu\r\n",
 						       can_tx_success_cnt, can_tx_fail_cnt, can_rx_cnt, can_busoff_cnt);
 
-			printf("CAN Queue - RX FULL:%lu | TX FULL:%lu | ACK QUEUE FAIL:%lu\r\n",
+			printf("CAN Queue - RX FULL:%lu | TX FULL:%lu | QUEUE_FULL:%lu  | ACK QUEUE FAIL:%lu\r\n",
 			       can_rx_queue_full_cnt,
 			       can_tx_queue_full_cnt,
+				   control_cmd_queue_full_cnt,
 			       can_ack_queue_fail_cnt);
 
 			printf("CAN Error - ACK:%lu | BIT:%lu | Last:0x%08lX | TEC:%u | REC:%u\r\n",
@@ -152,6 +165,9 @@ void Log_Task(void *pvParameters)
 			       can_last_error,
 			       can_last_tec,
 			       can_last_rec);
+
+			printf("CAN mailbox tokens: %lu\r\n",
+			       uxSemaphoreGetCount(CanMailboxSemaphore));
 
 			printf("Heap - Current Free: %u Bytes | Min Ever Free: %u Bytes\r\n", free_heap, min_ever_heap);
 			// 【建议修改】把 Watchdog 的剩余堆栈也加到这行综合打印里

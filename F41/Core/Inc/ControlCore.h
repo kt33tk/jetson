@@ -57,9 +57,15 @@ typedef struct{
 	uint32_t last_cmd_time;
 
 	uint8_t relay_state;   // 只允许0或1
+
+	int16_t auto_on_temp_x10;
+	int16_t auto_off_temp_x10;
+	uint32_t manual_timeout_ms;
+	uint32_t sensor_timeout_ms;
 }ControlContext_t;
 
 void ControlCore_Init(ControlContext_t *ctx, uint32_t current_time);
-void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, ControlCommand_t *cmd, uint32_t current_time);
+void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, uint8_t sensor_updated, ControlCommand_t *cmd, uint32_t current_time);
+void ControlCore_ApplyConfig(ControlContext_t *ctx, int16_t auto_on_temp_x10, int16_t auto_off_temp_x10, uint32_t manual_timeout_ms, uint32_t sensor_timeout_ms);
 
 #endif

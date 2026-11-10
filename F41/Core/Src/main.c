@@ -24,15 +24,21 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "event_groups.h"
+#include "semphr.h"
 #include "sensor.h"
 #include "control.h"
 #include "log.h"
 #include "ControlCore.h"
 #include "test.h"
 #include "crc8.h"
+#include "CRC32.h"
 #include "CanRX.h"
 #include "Watchdog.h"
 #include "ADC_Sensor.h"
+#include "SystemSync.h"
+#include "W25Q64.h"
+#include "NVM.h"
 #include <string.h>
 /* USER CODE END Includes */
 
@@ -59,6 +65,8 @@ CAN_HandleTypeDef hcan1;
 
 IWDG_HandleTypeDef hiwdg;
 
+SPI_HandleTypeDef hspi1;
+
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
@@ -70,6 +78,7 @@ TaskHandle_t LogTaskHandle;
 TaskHandle_t CanTXTaskHandle;
 TaskHandle_t CanRXTaskHandle;
 TaskHandle_t WatchdogTaskHandle;
+TaskHandle_t NvMTaskHandle;
 
 QueueHandle_t Queue_Sensor_TX_t;      //传感器数据->CAN总线
 QueueHandle_t Queue_Sensor_CAN_t;	  //CAN总线处理后的传感器数据
@@ -77,10 +86,18 @@ QueueHandle_t Queue_Sensor_Control_t; //传感器数据->控制器
 QueueHandle_t Queue_Control_TX_t;     //控制器->CAN总线
 QueueHandle_t Queue_CAN_RX_t;       // CAN中断 → CanRX任务
 QueueHandle_t Queue_Control_Cmd_t;  // UART/CAN → Control任务
-QueueHandle_t Queue_ADC_Raw_t; //ADC-> sensor
 QueueHandle_t Queue_CAN_TX_t;  //280->CanTX
+QueueHandle_t Queue_NVM_t;     //NVM
+QueueHandle_t Queue_Control_Config_t;  //通知控制任务更新运行参数
+
+SemaphoreHandle_t AdcDmaDoneSemaphore;
+SemaphoreHandle_t CanMailboxSemaphore;
+SemaphoreHandle_t DiagSnapshotMutex;
+SemaphoreHandle_t SpiBusMutex;
+EventGroupHandle_t SystemEventGroup;
 
 uint8_t receive_byte = 0;
+NvM_ParamPayload_t RuntimeParams;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -92,6 +109,7 @@ static void MX_IWDG_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -146,6 +164,7 @@ int main(void)
   MX_CAN1_Init();
   MX_ADC1_Init();
   MX_TIM2_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
   __HAL_DBGMCU_FREEZE_IWDG();
 
@@ -182,17 +201,45 @@ int main(void)
 
   Test_CRC8_J1850();
 
+  AdcDmaDoneSemaphore = xSemaphoreCreateBinary();
+  CanMailboxSemaphore = xSemaphoreCreateCounting(3, 3);
+  DiagSnapshotMutex = xSemaphoreCreateMutex();
+  SpiBusMutex = xSemaphoreCreateMutex();
+  SystemEventGroup = xEventGroupCreate();
+
+  if (AdcDmaDoneSemaphore == NULL || CanMailboxSemaphore == NULL || DiagSnapshotMutex == NULL ||
+		  SpiBusMutex == NULL || SystemEventGroup == NULL)
+  {
+      printf("[FATAL] Semaphore create failed!\r\n");
+      HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET); // 强制关断
+      while(1);
+  }
+
+  if (NvM_BootInit(&RuntimeParams) != 0U)
+  {
+      printf("[NVM] Ready\r\n");
+  }
+  else
+  {
+      RuntimeParams = NvM_DefaultParams;
+
+      printf("[NVM] Unavailable, using defaults\r\n");
+  }
+
+  xEventGroupSetBits(SystemEventGroup, EVT_CAN_READY);
+
   Queue_Sensor_TX_t = xQueueCreate(1, sizeof(Sensor_Sample_t));
   Queue_Sensor_Control_t = xQueueCreate(1, sizeof(Sensor_Sample_t));
   Queue_Sensor_CAN_t = xQueueCreate(1, sizeof(Can_Frame_t));
   Queue_Control_TX_t = xQueueCreate(1, sizeof(ControlContext_t));
   Queue_CAN_RX_t = xQueueCreate(16, sizeof(Can_Frame_t));
   Queue_Control_Cmd_t = xQueueCreate(4, sizeof(ControlCommand_t));
-  Queue_ADC_Raw_t = xQueueCreate(1, sizeof(uint16_t));
   Queue_CAN_TX_t = xQueueCreate(16, sizeof(Can_Frame_t));
+  Queue_NVM_t = xQueueCreate(NVM_QUEUE_LENGTH, sizeof(NvM_Request_t));
+  Queue_Control_Config_t = xQueueCreate(1, sizeof(NvM_ParamPayload_t));
 
-  if (Queue_Sensor_TX_t == NULL || Queue_Sensor_Control_t == NULL || Queue_CAN_TX_t == NULL ||
-        Queue_Sensor_CAN_t == NULL || Queue_Control_TX_t == NULL || Queue_Control_Cmd_t == NULL || Queue_CAN_RX_t == NULL || Queue_ADC_Raw_t == NULL)
+  if (Queue_Sensor_TX_t == NULL || Queue_Sensor_Control_t == NULL || Queue_CAN_TX_t == NULL || Queue_NVM_t == NULL || Queue_Control_Config_t == NULL ||
+        Queue_Sensor_CAN_t == NULL || Queue_Control_TX_t == NULL || Queue_Control_Cmd_t == NULL || Queue_CAN_RX_t == NULL)
   {
       printf("[FATAL] Queue create failed!\r\n");
       HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET); // 强制关断
@@ -209,7 +256,7 @@ int main(void)
       HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET);
       while(1); // 初始化失败，直接卡死
   }
-  if (xTaskCreate(Control_Task, "Control", 128, NULL, 3, &ControlTaskHandle) != pdPASS)
+  if (xTaskCreate(Control_Task, "Control", 128, &RuntimeParams, 3, &ControlTaskHandle) != pdPASS)
   {
       HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET);
       while(1); // 初始化失败，直接卡死
@@ -229,8 +276,15 @@ int main(void)
       HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET);
       while(1); // 初始化失败，直接卡死
   }
+  if (xTaskCreate(NvM_Task, "NvM", 256, NULL, 1, &NvMTaskHandle) != pdPASS)
+  {
+      HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET);
+      while(1); // 初始化失败，直接卡死
+  }
 
   HAL_UART_Receive_IT(&huart1, &receive_byte, sizeof(uint8_t));
+
+  HAL_IWDG_Refresh(&hiwdg);
 
   vTaskStartScheduler();
 
@@ -444,6 +498,44 @@ static void MX_IWDG_Init(void)
 }
 
 /**
+  * @brief SPI1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI1_Init(void)
+{
+
+  /* USER CODE BEGIN SPI1_Init 0 */
+
+  /* USER CODE END SPI1_Init 0 */
+
+  /* USER CODE BEGIN SPI1_Init 1 */
+
+  /* USER CODE END SPI1_Init 1 */
+  /* SPI1 parameter configuration*/
+  hspi1.Instance = SPI1;
+  hspi1.Init.Mode = SPI_MODE_MASTER;
+  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi1.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI1_Init 2 */
+
+  /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
@@ -556,10 +648,20 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, VALUE_Pin|MODE2_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : FLASH_CS_Pin */
+  GPIO_InitStruct.Pin = FLASH_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(FLASH_CS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LED_Control_Pin */
   GPIO_InitStruct.Pin = LED_Control_Pin;

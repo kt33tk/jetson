@@ -11,6 +11,7 @@
 #include <string.h>
 #include "Can_protocol.h"
 #include "crc8.h"
+#include "SystemSync.h"
 
 void Log_Task(void *pvParameters);
 

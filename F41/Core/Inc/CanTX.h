@@ -12,6 +12,7 @@
 #include "stm32f4xx_hal.h"
 #include "Can_protocol.h"
 #include "crc8.h"
+#include "SystemSync.h"
 
 typedef enum {
     ACK_SUCCESS   = 0x00,  // 正常新命令[cite: 21]
@@ -30,5 +31,6 @@ typedef struct{
 void Trigger_Send_0x280_ACK(uint8_t rx_counter, uint8_t ack_status);
 void CanTX_Task(void *pvParameters);
 BaseType_t CanTX_Enqueue(const Can_Frame_t *frame);
+void CanMailbox_ReleaseFromISR(void);
 
 #endif

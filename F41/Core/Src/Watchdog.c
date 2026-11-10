@@ -51,5 +51,10 @@ void Watchdog_Task(void *pvParameters)
 				HAL_IWDG_Refresh(&hiwdg);
 			}
 		}
+
+		if (system_fatal_fault != 0U)
+		{
+		    xEventGroupSetBits(SystemEventGroup, EVT_FATAL_FAULT);
+		}
 	}
 }

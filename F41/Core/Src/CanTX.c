@@ -16,6 +16,9 @@ extern volatile uint32_t can_rx_queue_full_cnt;
 extern volatile uint32_t can_tx_queue_full_cnt;
 extern volatile uint32_t can_ack_queue_fail_cnt;
 
+extern volatile uint32_t can_mailbox_timeout_cnt;
+extern volatile uint32_t can_mailbox_overflow_cnt;
+
 BaseType_t CanTX_Enqueue(const Can_Frame_t *frame)
 {
     if ((frame == NULL) || (Queue_CAN_TX_t == NULL))
@@ -79,8 +82,10 @@ static BaseType_t CanTX_SendFrame(const Can_Frame_t *frame)      //仅该处可�
     tx_header.DLC = frame->dlc;
     tx_header.TransmitGlobalTime = DISABLE;
 
-    if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) == 0U)
+    if (xSemaphoreTake(CanMailboxSemaphore,
+                       pdMS_TO_TICKS(20)) != pdTRUE)
     {
+        can_mailbox_timeout_cnt++;
         can_tx_fail_cnt++;
         return pdFAIL;
     }
@@ -90,6 +95,9 @@ static BaseType_t CanTX_SendFrame(const Can_Frame_t *frame)      //仅该处可�
                              (uint8_t *)frame->data,
                              &tx_mailbox) != HAL_OK)
     {
+        /* HAL没有接受这一帧，邮箱实际上没有被占用 */
+        xSemaphoreGive(CanMailboxSemaphore);
+
         can_tx_fail_cnt++;
         return pdFAIL;
     }
@@ -104,6 +112,20 @@ static BaseType_t CanTX_SendFrame(const Can_Frame_t *frame)      //仅该处可�
     }
 
     return pdPASS;
+}
+
+void CanMailbox_ReleaseFromISR(void)
+{
+    BaseType_t higher_priority_task_woken = pdFALSE;
+
+    if (xSemaphoreGiveFromISR(CanMailboxSemaphore,
+                              &higher_priority_task_woken) != pdTRUE)
+    {
+        /* 通常表示信号量已经是3，发生了重复归还 */
+        can_mailbox_overflow_cnt++;
+    }
+
+    portYIELD_FROM_ISR(higher_priority_task_woken);
 }
 
 static BaseType_t CanTX_Queue_0x180(void)
@@ -190,6 +212,7 @@ void HAL_CAN_TxMailbox0CompleteCallback(CAN_HandleTypeDef *hcan)
     if (hcan->Instance == CAN1)
     {
         can_tx_success_cnt++;
+        CanMailbox_ReleaseFromISR();
     }
 }
 
@@ -198,6 +221,7 @@ void HAL_CAN_TxMailbox1CompleteCallback(CAN_HandleTypeDef *hcan)
     if (hcan->Instance == CAN1)
     {
         can_tx_success_cnt++;
+        CanMailbox_ReleaseFromISR();
     }
 }
 
@@ -206,5 +230,30 @@ void HAL_CAN_TxMailbox2CompleteCallback(CAN_HandleTypeDef *hcan)
     if (hcan->Instance == CAN1)
     {
         can_tx_success_cnt++;
+        CanMailbox_ReleaseFromISR();
+    }
+}
+
+void HAL_CAN_TxMailbox0AbortCallback(CAN_HandleTypeDef *hcan)
+{
+    if (hcan->Instance == CAN1)
+    {
+        CanMailbox_ReleaseFromISR();
+    }
+}
+
+void HAL_CAN_TxMailbox1AbortCallback(CAN_HandleTypeDef *hcan)
+{
+    if (hcan->Instance == CAN1)
+    {
+        CanMailbox_ReleaseFromISR();
+    }
+}
+
+void HAL_CAN_TxMailbox2AbortCallback(CAN_HandleTypeDef *hcan)
+{
+    if (hcan->Instance == CAN1)
+    {
+        CanMailbox_ReleaseFromISR();
     }
 }

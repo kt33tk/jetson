@@ -16,6 +16,11 @@ volatile uint32_t can_rx_queue_full_cnt = 0;
 volatile uint32_t can_tx_queue_full_cnt = 0;
 volatile uint32_t can_ack_queue_fail_cnt = 0;
 
+volatile uint32_t can_mailbox_timeout_cnt = 0;
+volatile uint32_t can_mailbox_overflow_cnt = 0;
+
+volatile uint32_t control_cmd_queue_full_cnt = 0;
+
 static uint8_t last_accepted_counter = 0xFFU;
 
 //can报错部分以及通信转译部分需要重新回来看

@@ -7,6 +7,9 @@
 #include "task.h"
 #include "queue.h"
 #include <stdio.h>
+#include "NVM.h"
+#include "NVM_Map.h"
+#include "CRC32.h"
 
 void Test_Task(void *pvParameters);
 

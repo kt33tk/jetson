@@ -6,6 +6,7 @@ extern QueueHandle_t Queue_Control_Cmd_t;
 extern volatile uint32_t can_rx_cnt;
 extern volatile uint32_t can_busoff_cnt;
 extern volatile uint32_t can_tx_fail_cnt;
+extern volatile uint32_t control_cmd_queue_full_cnt;
 
 void CanRX_Task(void *pvParameters)
 {
@@ -32,7 +33,7 @@ void CanRX_Task(void *pvParameters)
                 	}
                 	else
                 	{
-                	    printf("[WARNING] Control Cmd Queue is FULL!\r\n");
+                	    control_cmd_queue_full_cnt++;
                 	}
                 }
                 else if (status == RX_DUPLICATE) {
@@ -93,6 +94,25 @@ void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan)
     }
 
     uint32_t error_code = HAL_CAN_GetError(hcan);
+
+    if ((error_code & (HAL_CAN_ERROR_TX_TERR0 |
+                       HAL_CAN_ERROR_TX_ALST0)) != 0U)
+    {
+        CanMailbox_ReleaseFromISR();
+    }
+
+    if ((error_code & (HAL_CAN_ERROR_TX_TERR1 |
+                       HAL_CAN_ERROR_TX_ALST1)) != 0U)
+    {
+        CanMailbox_ReleaseFromISR();
+    }
+
+    if ((error_code & (HAL_CAN_ERROR_TX_TERR2 |
+                       HAL_CAN_ERROR_TX_ALST2)) != 0U)
+    {
+        CanMailbox_ReleaseFromISR();
+    }
+
     uint32_t esr = hcan->Instance->ESR;
 
     can_last_error = error_code;
