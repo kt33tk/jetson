@@ -1,0 +1,16 @@
+../Core/Src/BOOT_IMAGE.c:19:13:Begin	1
+../Core/Src/BOOT_IMAGE.c:26:17:CrcFeed	4
+../Core/Src/BOOT_IMAGE.c:41:16:VectorValid	7
+../Core/Src/BOOT_IMAGE.c:55:9:Image_AppValid	8
+../Core/Src/BOOT_IMAGE.c:75:20:MakeHeader	1
+../Core/Src/BOOT_IMAGE.c:91:16:ReadHeader	8
+../Core/Src/BOOT_IMAGE.c:104:16:SealHeader	5
+../Core/Src/BOOT_IMAGE.c:120:16:EraseInternal	2
+../Core/Src/BOOT_IMAGE.c:140:16:WriteInternal	6
+../Core/Src/BOOT_IMAGE.c:160:16:WriteMeta	2
+../Core/Src/BOOT_IMAGE.c:182:12:CheckStep	8
+../Core/Src/BOOT_IMAGE.c:216:9:Image_StartDownload	4
+../Core/Src/BOOT_IMAGE.c:230:9:Image_Write	4
+../Core/Src/BOOT_IMAGE.c:240:9:Image_StartInstall	2
+../Core/Src/BOOT_IMAGE.c:255:9:Image_StartRestore	2
+../Core/Src/BOOT_IMAGE.c:268:5:Image_Poll	39

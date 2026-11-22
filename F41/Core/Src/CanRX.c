@@ -13,10 +13,17 @@ void CanRX_Task(void *pvParameters)
     Can_Frame_t raw_rx_msg;
     ControlCommand_t valid_cmd = {0};
 
-    for(;;) {
-        if (xQueueReceive(Queue_CAN_RX_t, &raw_rx_msg, portMAX_DELAY) == pdTRUE) {
+    IsoTp_Init(Uds_HandleRequest);
 
-            if (raw_rx_msg.id == 0x200) {
+    for(;;) {
+        if (xQueueReceive(Queue_CAN_RX_t, &raw_rx_msg, portMAX_DELAY) == pdTRUE)
+        {
+        	if (raw_rx_msg.id == ISOTP_REQUEST_ID)
+        	{
+        	    IsoTp_OnCanFrame(&raw_rx_msg);
+        	}
+        	else if (raw_rx_msg.id == 0x200)
+        	{
             	memset(&valid_cmd, 0, sizeof(valid_cmd));
                 // 将原始报文扔进漏斗过滤
                 Rx_Filter_Status_t status = Filter_And_Decode_0x200(&raw_rx_msg, &valid_cmd);

@@ -1,0 +1,7 @@
+../Core/Src/BOOT_ISOTP.c:28:16:TimeReached	2
+../Core/Src/BOOT_ISOTP.c:33:16:CanSendFrame	4
+../Core/Src/BOOT_ISOTP.c:52:6:BlIsoTp_Init	1
+../Core/Src/BOOT_ISOTP.c:62:9:BlIsoTp_Send	8
+../Core/Src/BOOT_ISOTP.c:109:13:OnFlowControl	8
+../Core/Src/BOOT_ISOTP.c:154:6:BlIsoTp_OnFrame	24
+../Core/Src/BOOT_ISOTP.c:253:6:BlIsoTp_Poll	12

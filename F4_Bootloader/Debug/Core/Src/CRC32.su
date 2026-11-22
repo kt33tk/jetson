@@ -1,0 +1,2 @@
+../Core/Src/CRC32.c:3:10:CRC32_Calculate	32	static
+../Core/Src/CRC32.c:28:9:CRC32_SelfTest	8	static

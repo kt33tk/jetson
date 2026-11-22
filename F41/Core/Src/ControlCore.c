@@ -126,8 +126,17 @@ void ControlCore_Step(ControlContext_t *ctx, Sensor_Sample_t *sensor, uint8_t se
 			{
 			    if (sensor->temperature >= ctx->auto_on_temp_x10)
 			    {
-			        ctx->cmd_value = 100U;
-			        ctx->app_value = 100U;
+			        /*
+			         * 到达开机温度：40% 目标转速；
+			         * 再升高 10°C：升到 100%。
+			         * 温度单位是 0.1°C，所以 10°C = 100。
+			         */
+			        int32_t rise_x10 = (int32_t)sensor->temperature - ctx->auto_on_temp_x10;
+
+			        uint8_t target = (rise_x10 >= 100) ? 100U : (uint8_t)(40 + rise_x10 * 60 / 100);
+
+			        ctx->cmd_value = target;
+			        ctx->app_value = target;
 			    }
 			    else if (sensor->temperature <= ctx->auto_off_temp_x10)
 			    {

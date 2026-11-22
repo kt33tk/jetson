@@ -1,0 +1,15 @@
+../Drivers/CMSIS/Include/core_cm4.h:1938:34:__NVIC_SystemReset	4	static,ignoring_inline_asm
+../Core/Src/BOOT_UDS.c:21:17:ReadBe32	16	static
+../Core/Src/BOOT_UDS.c:29:16:Nrc	24	static
+../Core/Src/BOOT_UDS.c:35:13:ScheduleReset	8	static
+../Core/Src/BOOT_UDS.c:41:6:BootUds_Init	16	static
+../Core/Src/BOOT_UDS.c:51:13:HandleSession	24	static
+../Core/Src/BOOT_UDS.c:72:13:HandleDownload	24	static
+../Core/Src/BOOT_UDS.c:113:13:HandleTransfer	24	static
+../Core/Src/BOOT_UDS.c:156:13:HandleExit	24	static
+../Core/Src/BOOT_UDS.c:177:13:HandleVerify	24	static
+../Core/Src/BOOT_UDS.c:210:13:HandleReset	24	static
+../Core/Src/BOOT_UDS.c:237:13:HandleReadInfo	40	static
+../Core/Src/BOOT_UDS.c:311:13:HandleTesterPresent	24	static
+../Core/Src/BOOT_UDS.c:331:6:BootUds_OnMessage	24	static
+../Core/Src/BOOT_UDS.c:397:6:BootUds_Poll	32	static

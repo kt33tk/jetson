@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdint.h>
 
+//诊断请求响应宏定义
 #define ISOTP_REQUEST_ID   0x7E0U
 #define ISOTP_RESPONSE_ID  0x7E8U
 #define ISOTP_MAX_PAYLOAD  48U

@@ -7,6 +7,8 @@
 #include "queue.h"
 #include "Can_protocol.h"
 #include "CanTX.h"
+#include "ISOTP.h"
+#include "UDS.h"
 #include <string.h>
 
 typedef struct {

@@ -1,0 +1,16 @@
+../Core/Src/BOOT_IMAGE.c:19:13:Begin	16	static
+../Core/Src/BOOT_IMAGE.c:26:17:CrcFeed	32	static
+../Core/Src/BOOT_IMAGE.c:41:16:VectorValid	32	static
+../Core/Src/BOOT_IMAGE.c:55:9:Image_AppValid	16	static
+../Core/Src/BOOT_IMAGE.c:75:20:MakeHeader	56	static
+../Core/Src/BOOT_IMAGE.c:91:16:ReadHeader	24	static
+../Core/Src/BOOT_IMAGE.c:104:16:SealHeader	40	static
+../Core/Src/BOOT_IMAGE.c:120:16:EraseInternal	48	static
+../Core/Src/BOOT_IMAGE.c:140:16:WriteInternal	40	static
+../Core/Src/BOOT_IMAGE.c:160:16:WriteMeta	40	static
+../Core/Src/BOOT_IMAGE.c:182:12:CheckStep	40	static
+../Core/Src/BOOT_IMAGE.c:216:9:Image_StartDownload	48	static
+../Core/Src/BOOT_IMAGE.c:230:9:Image_Write	32	static
+../Core/Src/BOOT_IMAGE.c:240:9:Image_StartInstall	56	static
+../Core/Src/BOOT_IMAGE.c:255:9:Image_StartRestore	16	static
+../Core/Src/BOOT_IMAGE.c:268:5:Image_Poll	32	static

@@ -1,0 +1,7 @@
+../Core/Src/BOOT_FLASH.c:6:13:Select	16	static
+../Core/Src/BOOT_FLASH.c:11:16:WaitReady	32	static
+../Core/Src/BOOT_FLASH.c:39:16:WriteEnable	16	static
+../Core/Src/BOOT_FLASH.c:50:9:Bf_Init	16	static
+../Core/Src/BOOT_FLASH.c:76:9:Bf_Read	40	static
+../Core/Src/BOOT_FLASH.c:100:9:Bf_Write	40	static
+../Core/Src/BOOT_FLASH.c:138:9:Bf_Erase	24	static

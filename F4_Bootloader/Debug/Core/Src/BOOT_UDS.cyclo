@@ -1,0 +1,15 @@
+../Drivers/CMSIS/Include/core_cm4.h:1938:34:__NVIC_SystemReset	1
+../Core/Src/BOOT_UDS.c:21:17:ReadBe32	1
+../Core/Src/BOOT_UDS.c:29:16:Nrc	1
+../Core/Src/BOOT_UDS.c:35:13:ScheduleReset	1
+../Core/Src/BOOT_UDS.c:41:6:BootUds_Init	1
+../Core/Src/BOOT_UDS.c:51:13:HandleSession	3
+../Core/Src/BOOT_UDS.c:72:13:HandleDownload	10
+../Core/Src/BOOT_UDS.c:113:13:HandleTransfer	6
+../Core/Src/BOOT_UDS.c:156:13:HandleExit	4
+../Core/Src/BOOT_UDS.c:177:13:HandleVerify	7
+../Core/Src/BOOT_UDS.c:210:13:HandleReset	3
+../Core/Src/BOOT_UDS.c:237:13:HandleReadInfo	11
+../Core/Src/BOOT_UDS.c:311:13:HandleTesterPresent	3
+../Core/Src/BOOT_UDS.c:331:6:BootUds_OnMessage	19
+../Core/Src/BOOT_UDS.c:397:6:BootUds_Poll	14

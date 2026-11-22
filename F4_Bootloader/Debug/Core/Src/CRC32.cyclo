@@ -1,0 +1,2 @@
+../Core/Src/CRC32.c:3:10:CRC32_Calculate	4
+../Core/Src/CRC32.c:28:9:CRC32_SelfTest	1

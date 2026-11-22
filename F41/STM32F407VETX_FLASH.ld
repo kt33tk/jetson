@@ -46,8 +46,8 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 MEMORY
 {
   CCMRAM    (xrw)    : ORIGIN = 0x10000000,   LENGTH = 64K
-  RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 128K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 512K
+  RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 128K - 8
+  FLASH    (rx)    : ORIGIN = 0x08010000,   LENGTH = 448K
 }
 
 /* Sections */
@@ -61,6 +61,14 @@ SECTIONS
     KEEP(*(.isr_vector)) /* Startup code */
     . = ALIGN(4);
   } >FLASH
+  
+    .app_info ORIGIN(FLASH) + 0x200 :
+  {
+    KEEP(*(.app_info))
+  } >FLASH
+
+  ASSERT(SIZEOF(.isr_vector) <= 0x200,
+         "Vector table overlaps AppInfo")
 
   /* The program code and other data into "FLASH" Rom type memory */
   .text :

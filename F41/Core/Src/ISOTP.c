@@ -25,6 +25,9 @@ void IsoTp_Init(IsoTp_RxCallback_t callback)
     g_waiting_flow_control = 0U;
 }
 
+//单帧构成：首位高八位任务类型，低八位数据长度，后面为数据
+//多帧构成：首帧首两位为数据标志位，首位高八位为任务类型，低八位与第二位共同构成表示数据长度的12位数据
+//多帧构成：后续数据发送中，首位高八位为任务类型，低八位为sequence，每发送一次就+1
 uint8_t IsoTp_Send(const uint8_t *data, uint16_t length)
 {
     uint8_t frame_data[8] = {0};

@@ -1,0 +1,7 @@
+../Core/Src/BOOT_FLASH.c:6:13:Select	1
+../Core/Src/BOOT_FLASH.c:11:16:WaitReady	5
+../Core/Src/BOOT_FLASH.c:39:16:WriteEnable	1
+../Core/Src/BOOT_FLASH.c:50:9:Bf_Init	7
+../Core/Src/BOOT_FLASH.c:76:9:Bf_Read	4
+../Core/Src/BOOT_FLASH.c:100:9:Bf_Write	8
+../Core/Src/BOOT_FLASH.c:138:9:Bf_Erase	5
