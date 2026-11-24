@@ -64,6 +64,8 @@ DMA_HandleTypeDef hdma_adc1;
 
 CAN_HandleTypeDef hcan1;
 
+I2C_HandleTypeDef hi2c1;
+
 IWDG_HandleTypeDef hiwdg;
 
 SPI_HandleTypeDef hspi1;
@@ -115,6 +117,7 @@ static void MX_TIM2_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -172,6 +175,7 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM1_Init();
   MX_TIM4_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   if (FanControl_Init() == 0U)
   {
@@ -443,61 +447,70 @@ static void MX_CAN1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN1_Init 2 */
-  CAN_FilterTypeDef sFilterConfig;
-  sFilterConfig.FilterBank = 0;
-  sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
-  sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+  CAN_FilterTypeDef filter = {0};
 
-  sFilterConfig.FilterIdHigh = 0x200 << 5;
-  sFilterConfig.FilterIdLow = 0x0000;
+  filter.FilterBank = 0U;
+  filter.FilterMode = CAN_FILTERMODE_IDMASK;
+  filter.FilterScale = CAN_FILTERSCALE_32BIT;
+  filter.FilterIdHigh = 0x200U << 5;
+  filter.FilterMaskIdHigh = 0x7FFU << 5;
+  filter.FilterFIFOAssignment = CAN_RX_FIFO0;
+  filter.FilterActivation = ENABLE;
+  filter.SlaveStartFilterBank = 14U;
 
-  sFilterConfig.FilterMaskIdHigh = 0x7FF << 5;
-  sFilterConfig.FilterMaskIdLow = 0x0000;
-  sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
-  sFilterConfig.FilterActivation = ENABLE;
-  sFilterConfig.SlaveStartFilterBank = 14;
-
-  if(HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK) {
+  if (HAL_CAN_ConfigFilter(&hcan1, &filter) != HAL_OK)
+  {
       Error_Handler();
   }
 
-  sFilterConfig.FilterBank = 1U;
-  sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
-  sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+  filter.FilterBank = 1U;
+  filter.FilterIdHigh = 0x7E0U << 5;
 
-  sFilterConfig.FilterIdHigh = 0x7E0U << 5;
-  sFilterConfig.FilterIdLow = 0x0000U;
-
-  sFilterConfig.FilterMaskIdHigh = 0x7FFU << 5;
-  sFilterConfig.FilterMaskIdLow = 0x0000U;
-
-  sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
-  sFilterConfig.FilterActivation = ENABLE;
-  sFilterConfig.SlaveStartFilterBank = 14U;
-
-  if (HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK)
+  if (HAL_CAN_ConfigFilter(&hcan1, &filter) != HAL_OK)
   {
       Error_Handler();
   }
 
   if (HAL_CAN_Start(&hcan1) != HAL_OK)
   {
-      printf("[FATAL ERROR] HAL_CAN_Start Failed!\r\n");
-      Error_Handler(); // 进入错误处理死循环[cite: 22]
+      Error_Handler();
   }
-  if (HAL_CAN_ActivateNotification(&hcan1,
-            CAN_IT_TX_MAILBOX_EMPTY |
-            CAN_IT_RX_FIFO0_MSG_PENDING |
-            CAN_IT_ERROR_WARNING |
-            CAN_IT_ERROR_PASSIVE |
-            CAN_IT_BUSOFF |
-            CAN_IT_LAST_ERROR_CODE |
-            CAN_IT_ERROR) != HAL_OK)
-  {
-      printf("[FATAL ERROR] HAL_CAN_ActivateNotification Failed!\r\n");
-      Error_Handler(); // 进入错误处理死循环[cite: 22]
-  }
+
   /* USER CODE END CAN1_Init 2 */
+
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
 
 }
 
@@ -802,6 +815,9 @@ static void MX_GPIO_Init(void)
                           |MODE2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(RELAY_IN_GPIO_Port, RELAY_IN_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_Control_GPIO_Port, LED_Control_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : FLASH_CS_Pin */
@@ -819,6 +835,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : RELAY_IN_Pin */
+  GPIO_InitStruct.Pin = RELAY_IN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(RELAY_IN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LED_Control_Pin */
   GPIO_InitStruct.Pin = LED_Control_Pin;

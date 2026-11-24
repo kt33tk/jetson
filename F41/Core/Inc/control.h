@@ -13,6 +13,11 @@
 #include "SystemSync.h"
 #include "NVM.h"
 #include "Can_protocol.h"
+#include "INA226.h"
+
+#define FAULT_OVERVOLTAGE 0x20U
+#define FAULT_OVERCURRENT 0x40U
+#define FAULT_INA226      0x80U
 
 void Control_Task(void *pvParameters);
 

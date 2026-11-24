@@ -27,14 +27,19 @@ typedef enum
     CONTROL_CMD_CLEAR_FAULT = 4
 } Control_CommandCode_t;
 
-typedef struct{
-	uint32_t timestamp;
-	int16_t temperature;
-	int16_t humidity;
-	uint8_t valid_flag;
-	uint32_t error_count;
-	uint8_t error_state;
-}Sensor_Sample_t;
+typedef struct
+{
+    uint32_t timestamp;
+    int16_t temperature;
+    int16_t humidity;
+    uint8_t valid_flag;
+    uint32_t error_count;
+    uint8_t error_state;
+
+    uint16_t voltage_mv;
+    int16_t current_ma;
+    uint8_t power_status;
+} Sensor_Sample_t;
 
 typedef struct
 {
@@ -62,6 +67,10 @@ typedef struct{
 	int16_t auto_off_temp_x10;
 	uint32_t manual_timeout_ms;
 	uint32_t sensor_timeout_ms;
+
+	uint16_t voltage_mv;
+	int16_t current_ma;
+	uint8_t power_status;
 }ControlContext_t;
 
 void ControlCore_Init(ControlContext_t *ctx, uint32_t current_time);

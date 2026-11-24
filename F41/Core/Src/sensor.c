@@ -12,108 +12,61 @@ extern uint16_t adc_buffer[ADC_BUF_LEN];
 
 void Sensor_Task(void *pvParameters)
 {
-	uint16_t raw_adc_avg = 0;
-	uint8_t last_fault_state = 0; // 用于 DTC 边沿触发检测
-	Sensor_Sample_t sample_data = {0};
+    Sensor_Sample_t sample = {.power_status = POWER_I2C_ERROR};
+    uint8_t last_fault = 0U;
 
-	HAL_TIM_Base_Start(&htim2);
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, ADC_BUF_LEN);
+    INA226_Init();
+    HAL_TIM_Base_Start(&htim2);
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buffer, ADC_BUF_LEN);
 
-	for(;;)
-	{
-		if (xSemaphoreTake(AdcDmaDoneSemaphore, pdMS_TO_TICKS(200)) == pdTRUE)
-		{
-		    uint32_t sum = 0;
+    for (;;)
+    {
+        if (xSemaphoreTake(AdcDmaDoneSemaphore, pdMS_TO_TICKS(200)) == pdTRUE)
+        {
+            uint32_t sum = 0U;
 
-		    for (uint32_t i = 0; i < ADC_BUF_LEN; i++)
-		    {
-		        sum += adc_buffer[i];
-		    }
+            for (uint32_t i = 0U; i < ADC_BUF_LEN; i++)
+                sum += adc_buffer[i];
 
-		    raw_adc_avg = (uint16_t)(sum / ADC_BUF_LEN);
+            uint16_t adc = sum / ADC_BUF_LEN;
+            uint8_t fault = adc > 4000U ? 1U :
+                            adc < 50U ? 2U : 0U;
 
-		    sample_data.timestamp = xTaskGetTickCount();
-		    uint8_t current_fault = 0;
+            if (fault != last_fault && fault != 0U)
+                sample.error_count++;
 
-		   	// 1. 物理电气边界与故障判定
-		   	if (raw_adc_avg > 4000)
-		   	{
-		   		current_fault = 1; // 开路故障 (NTC 拔掉，电压被上拉至接近 3.3V)
-		    }
-		   	else if (raw_adc_avg < 50)
-		    {
-		    	current_fault = 2; // 短路故障 (NTC 探头短路，电压被拉低至 0V)
-		    }
+            last_fault = fault;
+            sample.error_state = fault;
+            sample.valid_flag = fault == 0U;
+            sample.temperature = 0;
 
-		   	// 2. 边沿触发 DTC 记录 (仅在故障状态发生翻转时记录一次)
-		   	if (current_fault != last_fault_state)
-		   	{
-		   		if (current_fault != 0)
-		   		{
-		   			sample_data.error_state = current_fault;
-		   			sample_data.error_count++;
-		   		}
-		   		last_fault_state = current_fault;
-		   	}
+            if (sample.valid_flag)
+            {
+                float resistance = 10000.0f * adc / (4095.0f - adc);
+                float kelvin = 1.0f / (1.0f / 298.15f + logf(resistance / 10000.0f) / 3950.0f);
 
-		   	// 3. 数据处理与温度解算
-		   	if (current_fault != 0)
-		   	{
-		   		sample_data.valid_flag = 0;  // 故障发生，废弃温度数据，联动控制系统进入 SAFE
-		   		sample_data.temperature = 0;
-		   	}
-		   	else
-		   	{
-		   		sample_data.valid_flag = 1;
+                sample.temperature = (int16_t)((kelvin - 273.15f) * 10.0f);
+            }
+        }
+        else
+        {
+            sample.valid_flag = 0U;
+        }
 
-		   		// (a) 根据分压公式求 NTC 实时阻值：R_NTC = 10000 * ADC / (4095 - ADC)
-		   		float r_ntc = 10000.0f * (float)raw_adc_avg / (4095.0f - (float)raw_adc_avg);
+        sample.power_status = INA226_Read(&sample.voltage_mv, &sample.current_ma);
 
-		   		// (b) 运用 B 值公式 (B=3950, 10k=298.15K) 计算开尔文温度 Tk
-		   		float ln_r_ratio = log(r_ntc / 10000.0f);
-		   		float tk = 1.0f / ((1.0f / 298.15f) + (1.0f / 3950.0f) * ln_r_ratio);
+        sample.timestamp = xTaskGetTickCount();
 
-		   		// (c) 转换为摄氏度 Tc
-		   		float tc = tk - 273.15f;
+        if (sample.valid_flag)
+            xEventGroupSetBits(SystemEventGroup, EVT_SENSOR_VALID);
+        else
+            xEventGroupClearBits(SystemEventGroup, EVT_SENSOR_VALID);
 
-		   		// (d) 统一使用 0.1°C 整数格式（如 25.4°C -> 254）
-		   		sample_data.temperature = (int16_t)(tc * 10.0f);
-		   	}
+        DiagSnapshot_UpdateSensor(sample.temperature, sample.valid_flag, sample.timestamp);
 
-		   	if (sample_data.valid_flag == 1U)
-		   	{
-		   	    xEventGroupSetBits(SystemEventGroup, EVT_SENSOR_VALID);
-		   	}
-		   	else
-		   	{
-		   	    xEventGroupClearBits(SystemEventGroup, EVT_SENSOR_VALID);
-		   	}
+        xQueueOverwrite(Queue_Sensor_Control_t, &sample);
+        xQueueOverwrite(Queue_Sensor_TX_t, &sample);
 
-		   	DiagSnapshot_UpdateSensor( sample_data.temperature, sample_data.valid_flag, sample_data.timestamp);
-
-		   	xQueueOverwrite(Queue_Sensor_Control_t, &sample_data);
-		   	xQueueOverwrite(Queue_Sensor_TX_t, &sample_data);
-
-//		   	xTaskNotify(WatchdogTaskHandle, HEARTBEAT_SENSOR, eSetBits);
-		}
-		else
-		{
-		    /* ADC超时：发布无效样本，让控制状态机进入SAFE。 */
-		    sample_data.valid_flag = 0U;
-		    sample_data.timestamp = xTaskGetTickCount();
-
-		    xEventGroupClearBits(SystemEventGroup, EVT_SENSOR_VALID);
-
-		    DiagSnapshot_UpdateSensor( sample_data.temperature, sample_data.valid_flag, sample_data.timestamp);
-
-		    xQueueOverwrite(Queue_Sensor_Control_t, &sample_data);
-		    xQueueOverwrite(Queue_Sensor_TX_t, &sample_data);
-		}
-
-		xTaskNotify(
-		    WatchdogTaskHandle,
-		    HEARTBEAT_SENSOR,
-		    eSetBits
-		);
-	}
+        xTaskNotify(WatchdogTaskHandle, HEARTBEAT_SENSOR, eSetBits);
+    }
 }

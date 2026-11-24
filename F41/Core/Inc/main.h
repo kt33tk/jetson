@@ -67,6 +67,8 @@ void Error_Handler(void);
 #define AIN2_GPIO_Port GPIOB
 #define STBY_Pin GPIO_PIN_10
 #define STBY_GPIO_Port GPIOB
+#define RELAY_IN_Pin GPIO_PIN_12
+#define RELAY_IN_GPIO_Port GPIOB
 #define LED_Control_Pin GPIO_PIN_6
 #define LED_Control_GPIO_Port GPIOC
 #define VALUE_Pin GPIO_PIN_6

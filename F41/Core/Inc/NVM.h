@@ -18,7 +18,7 @@
 #define NVM_PARAM_COMMIT_MARKER  0x434F4D54UL  /* COMT */
 
 #define NVM_DTC_MAGIC       0xD7C1U
-#define NVM_DTC_VERSION     1U
+#define NVM_DTC_VERSION     2U
 
 #define NVM_DTC_RECORD_SIZE         32UL
 #define NVM_DTC_RECORDS_PER_SECTOR  \
@@ -85,7 +85,8 @@ typedef struct
     uint8_t relay_state;
 
     uint32_t can_error;
-    uint32_t reserved;
+    uint16_t voltage_mv;
+    int16_t current_ma;
 
     uint32_t crc32;
 } NvM_DtcRecord_t;
@@ -104,6 +105,8 @@ typedef struct
 
     uint32_t timestamp;
     uint32_t can_error;
+    uint16_t voltage_mv;
+    int16_t current_ma;
 } NvM_DtcRequestData_t;
 
 typedef enum

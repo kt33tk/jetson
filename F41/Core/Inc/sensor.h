@@ -12,6 +12,7 @@
 #include "ControlCore.h"
 #include "Watchdog.h"
 #include "ADC_Sensor.h"
+#include "INA226.h"
 #include "main.h"
 
 void Sensor_Task(void *pvParameters);

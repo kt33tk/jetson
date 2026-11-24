@@ -130,33 +130,22 @@ void CanMailbox_ReleaseFromISR(void)
 
 static BaseType_t CanTX_Queue_0x180(void)
 {
-    Sensor_Sample_t sensor = {0};
-    ControlContext_t control = {0};
+    Sensor_Sample_t sensor;
+    ControlContext_t control;
     SensorMsg_t message = {0};
-    Can_Frame_t frame = {0};
+    Can_Frame_t frame = {.id = 0x180U, .dlc = 8U};
+    static uint8_t power_counter;
 
-    /*
-     * 两份快照必须都已经产生，才能生成有效状态帧。
-     */
-    if (xQueuePeek(Queue_Sensor_TX_t, &sensor, 0) != pdTRUE)
-    {
+    if (xQueuePeek(Queue_Sensor_TX_t, &sensor, 0U) != pdTRUE ||
+        xQueuePeek(Queue_Control_TX_t, &control, 0U) != pdTRUE)
         return pdFAIL;
-    }
-
-    if (xQueuePeek(Queue_Control_TX_t, &control, 0) != pdTRUE)
-    {
-        return pdFAIL;
-    }
-
-    frame.id = 0x180U;
-    frame.dlc = 8U;
 
     message.valid_flag = sensor.valid_flag;
     message.app_value = control.app_value;
     message.current_mode = control.current_mode;
     message.fault_bits = control.fault_bits;
 
-    if (sensor.valid_flag == 1U)
+    if (sensor.valid_flag)
     {
         message.temperature = sensor.temperature;
         message.humidity = sensor.humidity;
@@ -164,9 +153,21 @@ static BaseType_t CanTX_Queue_0x180(void)
 
     Pack_Msg_0x180(&message, frame.data);
 
-    /*
-     * 不再直接调用HAL，而是和ACK一样进入统一发送队列。
-     */
+    if (CanTX_Enqueue(&frame) != pdPASS)
+        return pdFAIL;
+
+    uint16_t current_raw = (uint16_t)control.current_ma;
+
+    frame.id = 0x181U;
+    frame.data[0] = control.voltage_mv >> 8;
+    frame.data[1] = control.voltage_mv;
+    frame.data[2] = current_raw >> 8;
+    frame.data[3] = current_raw;
+    frame.data[4] = control.relay_state;
+    frame.data[5] = control.fault_bits;
+    frame.data[6] = (control.power_status << 4) | (power_counter++ & 0x0FU);
+    frame.data[7] = Calculate_CRC8_J1850(frame.data, 7U);
+
     return CanTX_Enqueue(&frame);
 }
 

@@ -10,55 +10,81 @@ extern volatile uint32_t control_cmd_queue_full_cnt;
 
 void CanRX_Task(void *pvParameters)
 {
+    extern CAN_HandleTypeDef hcan1;
+
     Can_Frame_t raw_rx_msg;
     ControlCommand_t valid_cmd = {0};
 
     IsoTp_Init(Uds_HandleRequest);
 
-    for(;;) {
-        if (xQueueReceive(Queue_CAN_RX_t, &raw_rx_msg, portMAX_DELAY) == pdTRUE)
+    if (HAL_CAN_ActivateNotification(
+            &hcan1,
+            CAN_IT_TX_MAILBOX_EMPTY |
+            CAN_IT_RX_FIFO0_MSG_PENDING |
+            CAN_IT_ERROR_WARNING |
+            CAN_IT_ERROR_PASSIVE |
+            CAN_IT_BUSOFF |
+            CAN_IT_LAST_ERROR_CODE |
+            CAN_IT_ERROR) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    for (;;)
+    {
+        if (xQueueReceive(Queue_CAN_RX_t,
+                          &raw_rx_msg, portMAX_DELAY) != pdTRUE)
         {
-        	if (raw_rx_msg.id == ISOTP_REQUEST_ID)
-        	{
-        	    IsoTp_OnCanFrame(&raw_rx_msg);
-        	}
-        	else if (raw_rx_msg.id == 0x200)
-        	{
-            	memset(&valid_cmd, 0, sizeof(valid_cmd));
-                // 将原始报文扔进漏斗过滤
-                Rx_Filter_Status_t status = Filter_And_Decode_0x200(&raw_rx_msg, &valid_cmd);
+            continue;
+        }
 
-                if (status == RX_VALID_NEW) {
-                	valid_cmd.timestamp = xTaskGetTickCount();
-                	valid_cmd.valid = 1;
+        if (raw_rx_msg.id == ISOTP_REQUEST_ID)
+        {
+            IsoTp_OnCanFrame(&raw_rx_msg);
+        }
+        else if (raw_rx_msg.id == 0x200U)
+        {
+            memset(&valid_cmd, 0, sizeof(valid_cmd));
 
-                    // 全新指令：推送到业务控制队列，触发实际动作[cite: 16]
-                	if (xQueueSend(Queue_Control_Cmd_t, &valid_cmd, 0) == pdPASS)
-                	{
-                		Commit_0x200_Counter(valid_cmd.rx_counter);
-                	    Trigger_Send_0x280_ACK(valid_cmd.rx_counter, ACK_SUCCESS);
-                	}
-                	else
-                	{
-                	    control_cmd_queue_full_cnt++;
-                	}
-                }
-                else if (status == RX_DUPLICATE) {
-                    // 重复指令：不执行实际动作（不进控制队列），但必须触发发送 0x280[cite: 16]
-                    Trigger_Send_0x280_ACK(raw_rx_msg.data[6] & 0x0F, ACK_ERR_DUP);
-                }
-                // 如果是 RX_ERR_CRC 或 RX_ERR_DLC，直接无视并丢弃，什么都不做
-                else if (status == RX_ERR_CRC) {
-                    // CRC 错误：拦截不执行，返回 CRC 失败状态码
-                    Trigger_Send_0x280_ACK(raw_rx_msg.data[6] & 0x0F, ACK_ERR_CRC);
-                }
-                else if (status == RX_ERR_PARAM)
+            Rx_Filter_Status_t status =
+                Filter_And_Decode_0x200(&raw_rx_msg, &valid_cmd);
+
+            if (status == RX_VALID_NEW)
+            {
+                valid_cmd.timestamp = xTaskGetTickCount();
+                valid_cmd.valid = 1U;
+
+                if (xQueueSend(Queue_Control_Cmd_t,
+                               &valid_cmd, 0U) == pdPASS)
                 {
+                    Commit_0x200_Counter(valid_cmd.rx_counter);
+
                     Trigger_Send_0x280_ACK(
-                        raw_rx_msg.data[6] & 0x0FU,
-                        ACK_ERR_PARAM
+                        valid_cmd.rx_counter, ACK_SUCCESS
                     );
                 }
+                else
+                {
+                    control_cmd_queue_full_cnt++;
+                }
+            }
+            else if (status == RX_DUPLICATE)
+            {
+                Trigger_Send_0x280_ACK(
+                    raw_rx_msg.data[6] & 0x0FU, ACK_ERR_DUP
+                );
+            }
+            else if (status == RX_ERR_CRC)
+            {
+                Trigger_Send_0x280_ACK(
+                    raw_rx_msg.data[6] & 0x0FU, ACK_ERR_CRC
+                );
+            }
+            else if (status == RX_ERR_PARAM)
+            {
+                Trigger_Send_0x280_ACK(
+                    raw_rx_msg.data[6] & 0x0FU, ACK_ERR_PARAM
+                );
             }
         }
     }

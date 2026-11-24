@@ -343,8 +343,7 @@ void Uds_HandleRequest(const uint8_t *request, uint16_t length)
     if (request[0] == 0x22U && length == 3U)
     {
         uint16_t did = ((uint16_t)request[1] << 8) | request[2];
-
-        uint8_t response[7] = {0x62U, request[1], request[2], 0U, 0U, 0U, 0U};
+        uint8_t response[7] = {0x62U, request[1], request[2]};
 
         if (did == 0xF1A0U)
         {
@@ -357,6 +356,42 @@ void Uds_HandleRequest(const uint8_t *request, uint16_t length)
         {
             response[3] = 0U;
             IsoTp_Send(response, 4U);
+            return;
+        }
+    }
+
+    if (request[0] == 0x19U && length == 6U &&
+        request[1] == 0x04U && request[2] == 0U)
+    {
+        uint16_t code = ((uint16_t)request[3] << 8) | request[4];
+
+        if (code >= 0x1085U && code <= 0x1087U)
+        {
+            NvM_DtcRecord_t record;
+            uint8_t response[20] = {
+                0x59U, 0x04U, 0U, request[3], request[4]
+            };
+
+            if (!NvM_ReadLatestSetDtc(code, &record))
+            {
+                Uds_SendNrc(0x19U, NRC_REQUEST_OUT_OF_RANGE);
+                return;
+            }
+
+            response[5] = record.dtc_status;
+            response[6] = request[5];
+            response[7] = (uint16_t)record.temperature_x10 >> 8;
+            response[8] = record.temperature_x10;
+            response[9] = record.control_mode;
+            response[10] = record.app_value;
+            response[11] = record.relay_state;
+            PutU32(&response[12], record.can_error);
+            response[16] = record.voltage_mv >> 8;
+            response[17] = record.voltage_mv;
+            response[18] = (uint16_t)record.current_ma >> 8;
+            response[19] = record.current_ma;
+
+            IsoTp_Send(response, sizeof(response));
             return;
         }
     }

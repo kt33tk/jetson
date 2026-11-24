@@ -401,37 +401,25 @@ static NvM_DtcSlotState_t NvM_DtcGetSlotState(uint32_t index, NvM_DtcRecord_t *r
 }
 
 //控制任务提交的数据包装为Flash并计算CRC
-static bool NvM_BuildDtcRecord(NvM_DtcRecord_t *record, const NvM_DtcRequestData_t *request)
+static bool NvM_BuildDtcRecord(NvM_DtcRecord_t *record,
+                               const NvM_DtcRequestData_t *request)
 {
-    if ((record == NULL) || (request == NULL))
-    {
-        return false;
-    }
-
-    if ((request->event != NVM_DTC_EVENT_SET) && (request->event != NVM_DTC_EVENT_CLEAR))
-    {
-        return false;
-    }
-
     memset(record, 0, sizeof(*record));
 
     record->magic = NVM_DTC_MAGIC;
     record->version = NVM_DTC_VERSION;
     record->event = request->event;
-
     record->sequence = g_dtc_next_sequence;
     record->timestamp = request->timestamp;
-
     record->dtc_code = request->dtc_code;
     record->dtc_status = request->dtc_status;
     record->control_mode = request->control_mode;
-
     record->temperature_x10 = request->temperature_x10;
-
     record->app_value = request->app_value;
     record->relay_state = request->relay_state;
     record->can_error = request->can_error;
-    record->reserved = 0U;
+    record->voltage_mv = request->voltage_mv;
+    record->current_ma = request->current_ma;
 
     record->crc32 = CRC32_Calculate(record, offsetof(NvM_DtcRecord_t, crc32));
 
